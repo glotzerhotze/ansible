@@ -5,12 +5,16 @@
 # Schema: salt/quadlets/README.md
 # Addresses: pillar/ipam.yaml
 {%- from 'ipam.jinja' import ip, mac %}
-{#- Image tags, pinned to the versions that were running on 2026-11-13. A
+{#- Image tags, pinned to specific versions. Renovate (renovate.json) opens a
+    pull request when a newer one is out; the renovate: comment above each
+    variable names the image its tag belongs to. A
     changed tag is pulled and its container restarted on the next highstate;
     raise a version here to upgrade. podman auto-update
     (container_defaults: auto_update: registry) only looks for a newer image
     under the same tag, so it only picks up rebuilds of the pinned version. #}
+{#- renovate: depName=docker.io/pihole/pihole #}
 {%- set pihole_version = '2026.09.0' %}
+{#- renovate: depName=docker.io/klutchell/unbound #}
 {%- set unbound_version = '1.26.1' %}
 ---
 quadlets:

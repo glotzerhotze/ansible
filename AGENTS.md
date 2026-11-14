@@ -93,6 +93,11 @@ Container conventions to follow:
 - `scripts/deploy.sh`: rsyncs everything above to the master with
   `--delete`, then restarts it. The local tree is the source of truth: a file
   deleted here also disappears on the master.
+- `renovate.json`, `.github/workflows/renovate.yml`: Renovate runs weekly on
+  GitHub and opens pull requests for newer image tags in
+  `pillar/quadlets/*.sls`. Every `{%- set <name>_version = '<tag>' %}` there
+  needs a `{#- renovate: depName=<image> #}` comment directly above it, so add
+  one for each new image. Merging such a PR deploys nothing.
 
 ## Conventions
 
@@ -186,5 +191,5 @@ There is no local Salt or CI. Before suggesting a deploy:
 - Hard-code host paths or minion IDs in states. Per-host data belongs in
   `pillar/<formula>/<host>.sls`.
 - Commit `.DS_Store` or `.idea/`.
-- `git add` anything under `pillar/` (it is gitignored on purpose; it is
-  deployed from the working tree only) or `config/onepassword.token`.
+- Commit `config/onepassword.token` or any secret value. `pillar/` is
+  committed, so secrets in it must stay 1Password references.

@@ -6,33 +6,45 @@
 # Schema: salt/quadlets/README.md
 # Addresses: pillar/ipam.yaml
 {%- from 'ipam.jinja' import ip, mac %}
-{#- Image tags, pinned to the versions that were running on 2026-11-13. A
+{#- Image tags, pinned to specific versions. Renovate (renovate.json) opens a
+    pull request when a newer one is out; the renovate: comment above each
+    variable names the image its tag belongs to. A
     changed tag is pulled and its containers restarted on the next highstate;
     raise a version here to upgrade. podman auto-update (tika's
     auto_update: registry) only looks for a newer image under the same tag,
     so it only picks up rebuilds of the pinned version. #}
 {#- registry and registry-mirror #}
+{#- renovate: depName=docker.io/library/registry #}
 {%- set registry_version = '3.1.2' %}
 {#- paperless-ngx pod; gotenberg needs 8.13+ for --api-bind-ip, and tika's
     start command below is copied from the image (check it when raising
     paperless_tika_version) #}
+{#- renovate: depName=ghcr.io/paperless-ngx/paperless-ngx #}
 {%- set paperless_version = '3.3.4' %}
+{#- renovate: depName=docker.io/library/redis #}
 {%- set paperless_redis_version = '7.4.12' %}
+{#- renovate: depName=docker.io/gotenberg/gotenberg #}
 {%- set paperless_gotenberg_version = '8.39.0' %}
+{#- renovate: depName=docker.io/apache/tika #}
 {%- set paperless_tika_version = '4.1.0' %}
 {#- Stay on 2.x: InfluxDB 3 has a different storage engine and is no
     in-place upgrade #}
+{#- renovate: depName=docker.io/library/influxdb #}
 {%- set influxdb_version = '2.9.1' %}
 {#- TLS proxy in the paperless-ngx, influxdb and immich pods #}
+{#- renovate: depName=docker.io/library/haproxy #}
 {%- set haproxy_version = '3.2.26' %}
 {#- Immich release for server and machine-learning, which must match. Read
     the release notes before raising it: https://github.com/immich-app/immich/releases #}
+{#- renovate: depName=ghcr.io/immich-app/immich-server #}
 {%- set immich_version = 'v3.4.1' %}
 {#- valkey and postgres for immich: tag and digest from the upstream
     docker-compose.yml of that release, so update them together with
     immich_version:
     https://github.com/immich-app/immich/releases/download/<version>/docker-compose.yml #}
+{#- renovate: depName=docker.io/valkey/valkey #}
 {%- set immich_valkey_version = '9@sha256:c123e3715db63d06d4ad6964884037aa0d5d4d703939b9929954112889708e1d' %}
+{#- renovate: depName=ghcr.io/immich-app/postgres #}
 {%- set immich_postgres_version = '14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23' %}
 ---
 quadlets:

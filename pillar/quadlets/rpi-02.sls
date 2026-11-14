@@ -6,19 +6,26 @@
 # Schema: salt/quadlets/README.md
 # Addresses: pillar/ipam.yaml
 {%- from 'ipam.jinja' import ip, mac %}
-{#- Image tags, pinned to the versions that were running on 2026-11-13. A
+{#- Image tags, pinned to specific versions. Renovate (renovate.json) opens a
+    pull request when a newer one is out; the renovate: comment above each
+    variable names the image its tag belongs to. A
     changed tag is pulled and its containers restarted on the next highstate;
     raise a version here to upgrade. podman auto-update
     (container_defaults: auto_update: registry) only looks for a newer image
     under the same tag, so it only picks up rebuilds of the pinned version. #}
 {#- pihole is disabled below; same version as on rpi-01 #}
+{#- renovate: depName=docker.io/pihole/pihole #}
 {%- set pihole_version = '2026.10.0' %}
+{#- renovate: depName=docker.io/klutchell/unbound #}
 {%- set unbound_version = '1.24.2' %}
+{#- renovate: depName=ghcr.io/netbootxyz/netbootxyz #}
 {%- set netbootxyz_version = '0.7.6-nbxyz26' %}
 {#- grafana: a nightly build from grafana-dev (what grafana:main pointed to).
     For a stable version switch the image to docker.io/grafana/grafana with
     a release tag. #}
+{#- renovate: depName=docker.io/grafana/grafana-dev #}
 {%- set grafana_version = '13.1.0-25957875840' %}
+{#- renovate: depName=docker.io/library/haproxy #}
 {%- set haproxy_version = '3.2.26' %}
 ---
 quadlets:
