@@ -172,6 +172,11 @@ quadlets:
           image: docker.io/pihole/pihole:{{ pihole_version }}
           environment:
             TZ: Europe/Berlin
+            # name on the Let's Encrypt certificate in /etc/pihole/tls.pem
+            # (acme_sh/rpi-01.sls); validity 0 keeps FTL from replacing it
+            # with a self-signed one
+            FTLCONF_webserver_domain: ph-01.mgmt.gz.klessen.cloud
+            FTLCONF_webserver_tls_validity: '0'
           volumes:
             - volume: etc
               target: /etc/pihole

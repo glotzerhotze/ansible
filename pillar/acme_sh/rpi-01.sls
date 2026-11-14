@@ -1,6 +1,6 @@
-# acme_sh on rpi-02: the certificate for grafana. Account and Gandi DNS
-# settings are the same as in server-01.sls; see acme_sh/defaults.yaml for
-# all defaults.
+# acme_sh on rpi-01: the certificates for SaltGUI and Pi-hole. Account and
+# Gandi DNS settings are the same as in server-01.sls; see
+# acme_sh/defaults.yaml for all defaults.
 acme_sh:
   email: tilo@klessen.cloud
   # version: '3.1.6'
@@ -33,3 +33,21 @@ acme_sh:
       reload_cmd: systemctl try-restart salt-master-haproxy.service
       group: '99'
       user: '99'
+
+    # Pi-hole web UI (FTL's own web server). FTL wants key and certificate
+    # in one PEM file (webserver.tls.cert, /etc/pihole/tls.pem in the
+    # pihole-etc volume), so reload_cmd builds it from acme.sh's copies and
+    # no separate files are installed. FTL reads it only at start.
+    ph-01.mgmt.gz.klessen.cloud:
+      files:
+        key: null
+        cert: null
+        ca: null
+        fullchain: null
+      reload_cmd: |
+        pem=/var/lib/containers/storage/volumes/pihole-etc/_data/tls.pem
+        umask 077
+        cat "$CERT_FULLCHAIN_PATH" "$CERT_KEY_PATH" > "$pem.tmp"
+        chown 1000:1000 "$pem.tmp"
+        mv -f "$pem.tmp" "$pem"
+        systemctl try-restart pihole.service
