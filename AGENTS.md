@@ -1,11 +1,13 @@
 # AGENTS.md
 
 Salt states, pillar, reactor and master config for a small home fleet (Debian
-trixie hosts and Raspberry Pis). The master is the
-[cdalvaro/docker-salt-master](https://github.com/cdalvaro/docker-salt-master)
-container, running under Podman on `192.168.23.65` as the systemd unit
-`salt-master`. Nothing in this repo runs locally. You edit files here, then
-`scripts/deploy.sh` rsyncs them into the container's volumes.
+trixie hosts and Raspberry Pis). The master is a SaltGUI build of
+[cdalvaro/docker-salt-master](https://github.com/cdalvaro/docker-salt-master),
+running under Podman on rpi-01 (`192.168.23.65`) as the container
+`salt-master-app` in the pod `salt-master` (systemd unit `salt-master-pod`),
+with haproxy in front of SaltGUI. The pod is itself a quadlet from
+`pillar/quadlets/rpi-01.sls`. Nothing in this repo runs locally. You edit
+files here, then `scripts/deploy.sh` rsyncs them into the container's volumes.
 
 ## Layout and where it lands in the container
 
@@ -30,9 +32,11 @@ Container conventions to follow:
   with a numeric prefix (`NN-topic.conf`) so their load order stays explicit.
 - Paths inside config and reactor files are **container** paths
   (`/home/salt/data/...`), never host or macOS paths.
-- The salt-api user is `salt_api`. The container sets it up from
-  `SALT_API_ENABLED` / `SALT_API_USER_PASS(_FILE)` on the host, not from this
-  repo. Never put that password here.
+- The salt-api user is `saltgui`, which SaltGUI logs in with. It is set as
+  `SALT_API_USER` in `pillar/quadlets/rpi-01.sls` and must match
+  `external_auth` in `config/20-salt-api.conf`. The password comes from
+  1Password and reaches the container as the podman secret `salt-api-pass`.
+  Never put the password itself here.
 - Keys (`/home/salt/data/keys`) and logs (`/home/salt/data/logs`) are not
   managed here.
 
@@ -75,8 +79,9 @@ Container conventions to follow:
   to minions; minion-side modules would go in `salt/_modules/`.
 - `config/`: master drop-ins.
   - `10-reactor.conf`: reactor wiring.
-  - `20-salt-api.conf`: PAM `external_auth` for `salt_api`, and
-    `netapi_enable_clients`.
+  - `20-salt-api.conf`: PAM `external_auth` for `saltgui`,
+    `netapi_enable_clients`, and salt-api on `127.0.0.1:8000` behind the
+    pod's haproxy.
   - `30-gitfs.conf`: gitfs, currently disabled.
   - `40-onepassword.conf`: settings for the `onepassword` module.
   - `50-modules.conf`: `module_dirs`.
@@ -140,8 +145,9 @@ Rules:
   When a profile or config needs one, add a 1Password reference. If you
   don't know the `op://` path, ask the user instead of leaving the field
   empty: an empty PSK would wipe the working key on the host.
-- `pillar/users/` still has a password hash in plaintext. Don't copy it or
-  print it.
+- The user password hash in `pillar/users/` comes from 1Password
+  (`op://infra/tk-user/password-hash`). It is still a secret: don't print it,
+  and avoid `pillar.items` on minions, which shows it.
 - Never read, print or modify `config/onepassword.token`.
 - To check a secret on the master, prefer `salt-run salt.cmd
   onepassword.version` or `onepassword.ratelimit`. Only use
@@ -158,16 +164,16 @@ There is no local Salt or CI. Before suggesting a deploy:
 
    ```bash
    ssh root@192.168.23.65
-   podman exec -it salt-master salt '<minion>' pillar.items          # pillar renders?
-   podman exec -it salt-master salt '<minion>' state.show_sls <sls>  # states render?
-   podman exec -it salt-master salt '<minion>' state.apply test=True # dry run
+   podman exec -it salt-master-app salt '<minion>' pillar.items          # pillar renders?
+   podman exec -it salt-master-app salt '<minion>' state.show_sls <sls>  # states render?
+   podman exec -it salt-master-app salt '<minion>' state.apply test=True # dry run
    ```
 
    (The container name may differ. Check with `podman ps`.)
 
    After changing `modules/` or `config/40-onepassword.conf`, check that the
    module loads and can authenticate before rendering any pillar:
-   `podman exec -it salt-master salt-run salt.cmd onepassword.version`.
+   `podman exec -it salt-master-app salt-run salt.cmd onepassword.version`.
 3. For `nm_connections` changes, use `test=True` and leave `activate` off on
    the interface the minion uses to reach the master.
 

@@ -197,9 +197,9 @@ diff, so don't put secrets there.
 Nothing in this repo runs locally. After `scripts/deploy.sh`, on the master:
 
 ```bash
-podman exec -it salt-master salt '<minion>' pillar.get nm_connections
-podman exec -it salt-master salt '<minion>' state.show_sls nm_connections
-podman exec -it salt-master salt '<minion>' state.apply nm_connections test=True
+podman exec -it salt-master-app salt '<minion>' pillar.get nm_connections
+podman exec -it salt-master-app salt '<minion>' state.show_sls nm_connections
+podman exec -it salt-master-app salt '<minion>' state.apply nm_connections test=True
 ```
 
 `test=True` shows which files would change and which `nmcli` or
