@@ -1,0 +1,64 @@
+{#-
+  Lookups into ipam.yaml, for pillar files. At the top of the file:
+
+    {%- from 'ipam.jinja' import ip, ips, cidr, mac %}
+
+  then:
+
+    ip('hosts:rpi-01:apps:pihole:ipv4')   ->  192.168.23.3
+    ip('networks:mgmt:ipv4:gateway')      ->  192.168.23.254
+    ip('networks:mgmt:ipv4:subnet')       ->  192.168.23.0/24
+    cidr('rpi-01', 'mgmt')                ->  192.168.23.65/24
+    cidr('rpi-01', 'iot', 'ipv6')         ->  fd42:ac1d:feed:30::65/64
+    ips('dns')                            ->  ["192.168.23.3", "192.168.23.33"]
+    mac('hosts:rpi-01:apps:pihole:mac')   ->  02:ac:1d:fe:ed:03
+
+  cidr() takes the prefix length from networks:<net>:<family>:subnet and
+  checks that the address lies inside it.
+
+  The output is not quoted. Put mac() in double quotes in YAML
+  (mac: "{{ mac('...') }}"), or a MAC made of digits only can come out as
+  a base-60 integer.
+
+  A path that does not exist or does not hold an address fails the pillar
+  render instead of writing an empty value. An empty address on the mgmt
+  profile would cut the host off from the master.
+-#}
+{%- import_yaml 'ipam.yaml' as ipam %}
+
+{%- macro ip(path) -%}
+{%-   set v = ipam | traverse(path) -%}
+{%-   if v is not string or not v | is_ip -%}
+{{-     raise('ipam: "' ~ path ~ '" is not an address in pillar/ipam.yaml') -}}
+{%-   endif -%}
+{{-   v -}}
+{%- endmacro %}
+
+{%- macro ips(path) -%}
+{%-   set vs = ipam | traverse(path) -%}
+{%-   if vs is string or vs is mapping or vs is not iterable -%}
+{{-     raise('ipam: "' ~ path ~ '" is not a list in pillar/ipam.yaml') -}}
+{%-   endif -%}
+{%-   for v in vs if v is not string or not v | is_ip -%}
+{{-     raise('ipam: "' ~ path ~ '" has a non-address entry "' ~ v ~ '"') -}}
+{%-   endfor -%}
+{{-   vs | json -}}
+{%- endmacro %}
+
+{%- macro mac(path) -%}
+{%-   set v = ipam | traverse(path) -%}
+{%-   if v is not string or v is not match('^([0-9a-f]{2}:){5}[0-9a-f]{2}$', ignorecase=True) -%}
+{{-     raise('ipam: "' ~ path ~ '" is not a MAC address (xx:xx:xx:xx:xx:xx) in pillar/ipam.yaml') -}}
+{%-   endif -%}
+{{-   v -}}
+{%- endmacro %}
+
+{%- macro cidr(host, net, family='ipv4') -%}
+{%-   set key    = 'hosts:' ~ host ~ ':' ~ net ~ ':' ~ family -%}
+{%-   set addr   = ip(key) -%}
+{%-   set subnet = ip('networks:' ~ net ~ ':' ~ family ~ ':subnet') -%}
+{%-   if '/' not in subnet or not [addr] | filter_by_networks([subnet]) -%}
+{{-     raise('ipam: ' ~ key ~ ' (' ~ addr ~ ') is not inside networks:' ~ net ~ ':' ~ family ~ ':subnet (' ~ subnet ~ ')') -}}
+{%-   endif -%}
+{{-   addr ~ '/' ~ subnet.split('/')[1] -}}
+{%- endmacro %}

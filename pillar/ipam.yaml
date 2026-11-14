@@ -1,0 +1,121 @@
+# IP and MAC addresses of the fleet, in one place.
+#
+# Not a pillar file of its own (top.sls only picks up *.sls). The pillar
+# files under nm_connections/, quadlets/ and write_environment/ read it
+# through the helpers in ipam.jinja, which also documents how. Change an
+# address here, deploy, and every profile, quadlet and config file that uses
+# it follows.
+#
+#   networks:<net>:ipv4|ipv6        subnet and gateway of a network
+#   hosts:<host>:<net>:ipv4|ipv6    address of a host on that network; the
+#                                   prefix length comes from the subnet
+#   hosts:<host>:shim:ipv4          host side of the macvlan network
+#                                   (macvlan-shim profile, a /32 on mgmt)
+#   hosts:<host>:apps:<app>         container on the macvlan network, named
+#                                   like the app in quadlets/<host>.sls:
+#                                   ipv4, ipv6 and mac
+#
+# Apps follow one scheme: ipv6 is the mgmt ipv6 prefix plus the last ipv4
+# octet in hex, and the mac is 02:ac:1d:fe:ed plus the same hex byte
+# (.98 -> ::62, 02:ac:1d:fe:ed:62). Change all three together. Exceptions
+# are marked.
+#
+# Quote IPv6 and MAC addresses: YAML 1.1 reads some colon-separated digit
+# strings as base-60 integers. This file goes through Jinja before YAML, so
+# it must not contain Jinja delimiters, not even in a comment.
+
+networks:
+  mgmt:
+    ipv4: {subnet: 192.168.23.0/24, gateway: 192.168.23.254}
+    ipv6: {subnet: 'fd42:ac1d:feed:1::/64', gateway: 'fd42:ac1d:feed:1::1'}
+  iot:                                # VLAN 30
+    ipv4: {subnet: 192.168.30.0/24, gateway: 192.168.30.254}
+    ipv6: {subnet: 'fd42:ac1d:feed:30::/64'}
+  surfer:                             # wifi
+    ipv4: {subnet: 192.168.42.0/24, gateway: 192.168.42.254}
+
+hosts:
+  rpi-01:
+    mgmt:   {ipv4: 192.168.23.65}
+    iot:    {ipv4: 192.168.30.65, ipv6: 'fd42:ac1d:feed:30::65'}
+    surfer: {ipv4: 192.168.42.65}
+    shim:   {ipv4: 192.168.23.165}
+    apps:
+      salt-master:
+        ipv4: 192.168.23.97
+        mac:  '02:ac:1d:fe:ed:61'
+      pihole:
+        ipv4: &pihole_01 192.168.23.3
+        ipv6: 'fd42:ac1d:feed:1::3'
+        mac:  '02:ac:1d:fe:ed:03'
+      unbound:
+        ipv4: 192.168.23.98
+        ipv6: 'fd42:ac1d:feed:1::62'
+        mac:  '02:ac:1d:fe:ed:62'
+
+  rpi-02:
+    mgmt:   {ipv4: 192.168.23.66}
+    surfer: {ipv4: 192.168.42.66}
+    shim:   {ipv4: 192.168.23.166}
+    apps:
+      pihole:                         # reserved, the app is commented out
+        ipv4: 192.168.23.32
+        mac:  '02:ac:1d:fe:ed:20'
+      unbound:
+        ipv4: 192.168.23.100
+        ipv6: 'fd42:ac1d:feed:1::64'
+        mac:  'de:ad:c0:ff:ee:64'     # exception: other prefix
+      netbootxyz:
+        ipv4: 192.168.23.101
+        ipv6: 'fd42:ac1d:feed:1::65'
+        mac:  '02:ac:1d:fe:ed:65'
+      grafana:
+        ipv4: 192.168.23.105
+        ipv6: 'fd42:ac1d:feed:1::69'
+        mac:  '02:ac:1d:fe:ed:69'
+
+  rpi-03:
+    mgmt:   {ipv4: 192.168.23.67}
+    surfer: {ipv4: 192.168.42.67}
+    shim:   {ipv4: 192.168.23.167}
+    apps:
+      pihole:
+        ipv4: &pihole_02 192.168.23.33
+        ipv6: 'fd42:ac1d:feed:1::21'
+        mac:  '02:ac:1d:fe:ed:21'
+      unbound:
+        ipv4: 192.168.23.99
+        ipv6: 'fd42:ac1d:feed:1::63'
+        mac:  '02:ac:1d:fe:ed:63'
+
+  server-01:
+    mgmt: {ipv4: 192.168.23.72}
+    iot:  {ipv4: 192.168.30.72, ipv6: 'fd42:ac1d:feed:30::72'}
+    shim: {ipv4: 192.168.23.172}
+    apps:
+      registry:
+        ipv4: 192.168.23.102
+        ipv6: 'fd42:ac1d:feed:1::66'
+        mac:  '02:ac:1d:fe:ed:66'
+      registry-mirror:
+        ipv4: 192.168.23.103
+        ipv6: 'fd42:ac1d:feed:1::67'
+        mac:  '02:00:c0:ff:ee:67'
+      paperless-ngx:
+        ipv4: 192.168.23.104
+        ipv6: 'fd42:ac1d:feed:1::68'
+        mac:  '02:ac:1d:fe:ed:68'
+      influxdb:
+        ipv4: 192.168.23.106
+        ipv6: 'fd42:ac1d:feed:1::6a'
+        mac:  '02:ac:1d:fe:ed:6a'
+      immich:
+        ipv4: 192.168.23.107
+        ipv6: 'fd42:ac1d:feed:1::6b'
+        mac:  '02:ac:1d:fe:ed:6b'
+
+# Resolvers every host uses (ipv4.dns), in order. Aliases of the Pi-hole
+# addresses above, so they have to stay below them.
+dns:
+  - *pihole_01
+  - *pihole_02
