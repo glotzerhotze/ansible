@@ -50,6 +50,7 @@ nm_connections:
         macvlan.parent: eth0
         ipv4.method: manual
         ipv4.address1: {{ ip('hosts:rpi-03:shim:ipv4') }}/32
-        ipv4.route1: {{ ip('orphaned:rpi-03-route1') }}/32
+        ipv4.route1: {{ ip('hosts:rpi-03:apps:pihole:ipv4') }}/32       # ph-01.mgmt.klessen.cloud
+        ipv4.route2: {{ ip('hosts:rpi-03:apps:unbound:ipv4') }}/32      # unbound-01
         ipv6.method: auto
         ipv6.addr-gen-mode: default

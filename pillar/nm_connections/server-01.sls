@@ -81,9 +81,8 @@ nm_connections:
         ipv4.route1: {{ ip('hosts:server-01:apps:registry-mirror:ipv4') }}/32   # docker.klessen.cloud
         ipv4.route2: {{ ip('hosts:server-01:apps:registry:ipv4') }}/32          # hub.klessen.cloud
         ipv4.route3: {{ ip('hosts:server-01:apps:paperless-ngx:ipv4') }}/32     # paperless-ngx
-        ipv4.route4: {{ ip('orphaned:server-01-route4') }}/32
-        ipv4.route5: {{ ip('hosts:server-01:apps:influxdb:ipv4') }}/32          # influxdb
-        ipv4.route6: {{ ip('hosts:server-01:apps:immich:ipv4') }}/32            # immich
+        ipv4.route4: {{ ip('hosts:server-01:apps:influxdb:ipv4') }}/32          # influxdb
+        ipv4.route5: {{ ip('hosts:server-01:apps:immich:ipv4') }}/32            # immich
         ipv6.method: auto
         ipv6.addr-gen-mode: default
         ipv6.ip6-privacy: 0
