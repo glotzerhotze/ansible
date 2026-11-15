@@ -26,7 +26,12 @@
 {#- renovate: depName=docker.io/gotenberg/gotenberg #}
 {%- set paperless_gotenberg_version = '8.40.0' %}
 {#- renovate: depName=docker.io/apache/tika #}
-{%- set paperless_tika_version = '4.2.0' %}
+{%- set paperless_tika_version = '3.3.3.0-full' %}
+{#- The 3.x images hold a single jar named after the Tika version, which is
+    the tag without the image build number and suffix (3.3.3.0-full ->
+    /tika-server-standard-3.3.3.jar). 4.x images use /opt/tika-server/
+    instead; see the tika container below. #}
+{%- set paperless_tika_jar = '/tika-server-standard-' ~ (paperless_tika_version.split('-')[0].split('.')[:3] | join('.')) ~ '.jar' %}
 {#- Stay on 2.x: InfluxDB 3 has a different storage engine and is no
     in-place upgrade #}
 {#- renovate: depName=docker.io/library/influxdb #}
@@ -194,7 +199,8 @@ quadlets:
             Label: app=paperless-ngx
       # podman secret "paperless-ngx", created on the host by the formula
       secrets:
-        paperless-ngx: {{ salt['onepassword.read']('op://infra/paperless-ngx/secret_key') | yaml_dquote }}   # keep quoted
+        paperless-ngx: {{ salt['onepassword.read']('op://infra/paperless-ngx/secret_key') | yaml_dquote }}
+        paperless-gmail-secret: {{ salt['onepassword.read']('op://infra/paperless-ngx-google-app/client-secret') | yaml_dquote }}   # keep quoted
       containers:
         app:
           description: Paperless-NGX Application
@@ -223,6 +229,8 @@ quadlets:
             PAPERLESS_CONSUMER_RECURSIVE: 'true'
             PAPERLESS_CONSUMER_SUBDIRS_AS_TAGS: 'true'
             PAPERLESS_CONSUMER_ENABLE_ASN_BARCODE: 'true'
+            PAPERLESS_GMAIL_OAUTH_CLIENT_ID: '318310645322-jlvsdv4j5ksr83df8nmjfu6v7afu0vej.apps.googleusercontent.com'
+            PAPERLESS_EMAIL_TASK_CRON: '*/5 * * * *'
             # PAPERLESS_POST_CONSUME_SCRIPT: ''
             # Only haproxy (same pod) talks to the web server; the LAN gets
             # TLS on 443 and no plain HTTP port.
@@ -232,7 +240,9 @@ quadlets:
             PAPERLESS_FILENAME_FORMAT: '{% raw %}{{ created_year }}{{ created_month }}{{ created_day }}-{{ title }}{% endraw %}'
           Container:
             # from the app secret above; a new value restarts the container
-            Secret: paperless-ngx,type=env,target=PAPERLESS_SECRET_KEY
+            Secret:
+              - paperless-ngx,type=env,target=PAPERLESS_SECRET_KEY
+              - paperless-gmail-secret,type=env,target=PAPERLESS_GMAIL_OAUTH_CLIENT_SECRET
           volumes:
             - volume: data
               target: /usr/src/paperless/data
@@ -273,11 +283,14 @@ quadlets:
           auto_update: registry
           # loopback only: the pod's macvlan address is reachable from the LAN.
           # The image's entrypoint hard-codes "-h 0.0.0.0" and Tika uses the first -h it
-          # sees, so this repeats the image's start command (as of 4.2.0) with 127.0.0.1.
+          # sees, so this repeats the image's start command (as of 3.3.3.0-full) with
+          # 127.0.0.1. The image expands ${TIKA_VERSION} in a shell; Entrypoint=java
+          # has none, so the jar path comes from paperless_tika_jar above. 4.x images
+          # need '-cp /opt/tika-server/*:/opt/tika-server/lib/*:/tika-extras/*' instead.
           # lowercase formula option -> Entrypoint=java. A capitalized key here
           # would be read as a raw unit section ([Entrypoint]) and break the render.
           entrypoint: java
-          command: '-cp /opt/tika-server/*:/opt/tika-server/lib/*:/tika-extras/* org.apache.tika.server.core.TikaServerCli -h 127.0.0.1'
+          command: '-cp {{ paperless_tika_jar }}:/tika-extras/* org.apache.tika.server.core.TikaServerCli -h 127.0.0.1'
 
         # TLS in front of the web UI: port 443 (IPv4 and IPv6) on the pod's
         # address -> 127.0.0.1:8000; port 80 redirects to https. haproxy.cfg
