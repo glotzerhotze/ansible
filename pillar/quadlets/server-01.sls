@@ -229,6 +229,7 @@ quadlets:
             PAPERLESS_CONSUMER_RECURSIVE: 'true'
             PAPERLESS_CONSUMER_SUBDIRS_AS_TAGS: 'true'
             PAPERLESS_CONSUMER_ENABLE_ASN_BARCODE: 'true'
+            PAPERLESS_CONSUMER_DELETE_DUPLICATES: 'true'
             PAPERLESS_GMAIL_OAUTH_CLIENT_ID: '318310645322-jlvsdv4j5ksr83df8nmjfu6v7afu0vej.apps.googleusercontent.com'
             PAPERLESS_EMAIL_TASK_CRON: '*/5 * * * *'
             # PAPERLESS_POST_CONSUME_SCRIPT: ''
