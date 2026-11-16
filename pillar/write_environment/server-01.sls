@@ -220,41 +220,102 @@ write_environment:
     dir_mode: '0755'
     file_mode: '0644'
     config: |
-      # Mounted into the container at /usr/local/etc/haproxy/haproxy.cfg
+      #---------------------------------------------------------------------
+      # HAProxy configuration for Immich (reverse proxy + TLS termination)
+      # Based on https://docs.immich.app/administration/reverse-proxy/
+      #
+      # Adjust: the domain, certificate path and backend address below.
+      #---------------------------------------------------------------------
 
       global
+          log /dev/log local0
+          log /dev/log local1 notice
           log stdout format raw local0
+          chroot /var/lib/haproxy
+          stats socket /run/haproxy/admin.sock mode 660 level admin
+          stats timeout 30s
           # started as root (User=root in the quadlet) to bind 80/443 and read
           # the key, then switches to the image's unprivileged user
           user haproxy
           group haproxy
+          daemon
+
+          # Modern TLS defaults
+          ssl-default-bind-curves X25519:prime256v1
+          ssl-default-bind-options ssl-min-ver TLSv1.2 no-tls-tickets
+          ssl-default-bind-ciphersuites TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256
+          ssl-default-bind-ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305
 
       defaults
           mode http
           log global
           option httplog
-          option forwardfor
-          timeout connect 5s
-          # request headers only; upload bodies fall under timeout client
-          timeout http-request 10s
-          # large photo and video uploads and downloads (upstream's proxy
-          # example uses 600s); haproxy sets no body size limit
-          timeout client 10m
-          timeout server 10m
-          # websocket for the live updates in the web UI and the apps
+          option dontlognull
+          option http-keep-alive
+
+          # Docs recommend 600s read/send timeouts so large uploads/downloads
+          # (e.g. videos) don't get cut off (HAProxy's equivalent of nginx's
+          # proxy_read_timeout / proxy_send_timeout / send_timeout = 600s).
+          timeout connect 10s
+          timeout client  600s
+          timeout server  600s
+          timeout http-request 600s
+          timeout http-keep-alive 10s
+
+          # WebSocket connections (Immich web UI live updates) stay open
+          # idle for long periods; keep the tunnel alive.
           timeout tunnel 1h
 
-      frontend http
-          # IPv4 and IPv6; only redirects, keeping host, path and query
-          bind [::]:80 v4v6
-          http-request redirect scheme https code 301
+      #---------------------------------------------------------------------
+      # Frontends
+      #---------------------------------------------------------------------
 
-      frontend https
-          # IPv4 and IPv6; the key is loaded from <crt>.key
+      # Redirect HTTP -> HTTPS (while still allowing Let's Encrypt http-01 for Immich)
+      frontend http_in
+          bind [::]:80 v4v6
+          http-request redirect scheme https code 301 unless { ssl_fc }
+
+      frontend https_in
+          # Put your certificate (fullchain + private key concatenated in one PEM)
+          # at this path, or point to a directory containing several certs.
           bind [::]:443 v4v6 ssl crt /usr/local/etc/haproxy/immich.pem alpn h2,http/1.1
+
+          # --- Required headers (docs: Host, X-Real-IP, X-Forwarded-Proto, X-Forwarded-For)
+          # Host is forwarded unchanged by HAProxy by default.
+          # X-Forwarded-For is added by "option forwardfor" in the backend.
+          http-request set-header X-Real-IP %[src]
           http-request set-header X-Forwarded-Proto https
+          http-request set-header X-Forwarded-Port  %[dst_port]
+
+          # Optional: HSTS
+          #http-response set-header Strict-Transport-Security "max-age=63072000"
+
+          # Only serve the Immich hostname (Immich must be at the root of a
+          # domain/subdomain - sub-paths are NOT supported).
+          acl host_immich hdr(host),field(1,:) -i immich.mgmt.gz.klessen.cloud
+          use_backend immich if host_immich
+
           default_backend immich
 
+      #---------------------------------------------------------------------
+      # Backend
+      #---------------------------------------------------------------------
       backend immich
-          # IMMICH_HOST=127.0.0.1 in the same pod
-          server immich 127.0.0.1:2283
+          # Adds X-Forwarded-For with the client's address.
+          option forwardfor
+
+          # No request body size limit and no request buffering are applied by
+          # HAProxy by default (it streams bodies), so large uploads work without
+          # extra settings (nginx's client_max_body_size / proxy_request_buffering off).
+
+          # WebSockets: HAProxy proxies Upgrade/Connection headers transparently
+          # and switches to tunnel mode (see "timeout tunnel" above).
+
+          # Optional basic health check against Immich's ping endpoint.
+          option httpchk
+          http-check send meth GET uri /api/server/ping hdr Host immich.mgmt.gz.klessen.cloud
+          http-check expect status 200
+
+          # Immich server listens on port 2283. Replace host with your container
+          # name / IP address.
+          server immich1 127.0.0.1:2283 check inter 10s fall 3 rise 2
