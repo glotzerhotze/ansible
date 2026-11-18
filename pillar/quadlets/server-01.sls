@@ -23,8 +23,11 @@
 {%- set paperless_version = '3.5.1' %}
 {#- renovate: depName=docker.io/library/redis #}
 {%- set paperless_redis_version = '8.10.3' %}
+{#- Stay on 8.x (renovate.json only allows <9) #}
 {#- renovate: depName=docker.io/gotenberg/gotenberg #}
 {%- set paperless_gotenberg_version = '8.40.0' %}
+{#- Stay on 3.x (renovate.json only allows <4): the start command below
+    needs the 3.x image layout #}
 {#- renovate: depName=docker.io/apache/tika #}
 {%- set paperless_tika_version = '3.3.3.1-full' %}
 {#- The 3.x images hold a single jar named after the Tika version, which is

@@ -60,8 +60,14 @@
       "enabled": false
     },
     {
-      "description": "The tika container's start command in the pillar is copied from the image.",
+      "description": "gotenberg: stay on 8.x. Raise the major version by hand after checking the gotenberg container's command-line flags in pillar/quadlets/server-01.sls.",
+      "matchPackageNames": ["docker.io/gotenberg/gotenberg"],
+      "allowedVersions": "<9"
+    },
+    {
+      "description": "tika: stay on 3.x, whose images hold /tika-server-standard-<version>.jar; 4.x images use /opt/tika-server/ and need a different start command. The tika container's start command in the pillar is copied from the image.",
       "matchPackageNames": ["docker.io/apache/tika"],
+      "allowedVersions": "<4",
       "prBodyNotes": [
         "Check that the image's entrypoint still matches the entrypoint/command override of the tika container in pillar/quadlets/server-01.sls."
       ]
