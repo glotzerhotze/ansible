@@ -1,0 +1,99 @@
+---
+# Everything the filters in plugins/filter/quadlets.py need to know about the
+# host, then the validated plan in `_quadlets_plan`. 1Password lookups in `quadlets` run
+# once, in the first task; later tasks only see the resolved fact.
+
+- name: Resolve the quadlets settings once
+  ansible.builtin.set_fact:
+    _quadlets_cfg: "{{ quadlets }}"
+  no_log: true
+
+- name: Work out directories and markers
+  ansible.builtin.set_fact:
+    _quadlets_config_dir: "{{ _quadlets_cfg.config_dir | default(quadlets_defaults.config_dir) }}"
+    _quadlets_systemd_dir: "{{ _quadlets_cfg.systemd_dir | default(quadlets_defaults.systemd_dir) }}"
+    _quadlets_marker_re: >-
+      ^(?:{{ ([_quadlets_cfg.marker | default(quadlets_defaults.marker)] + quadlets_adopt_markers)
+             | map('regex_escape') | join('|') }})
+
+- name: Check for the quadlet directory
+  ansible.builtin.stat:
+    path: "{{ _quadlets_config_dir }}"
+    get_checksum: false
+  register: _quadlets_config_dir_stat
+
+- name: Find everything in the quadlet directory
+  when: _quadlets_config_dir_stat.stat.isdir | default(false)
+  ansible.builtin.find:
+    paths: "{{ _quadlets_config_dir }}"
+    recurse: true
+    file_type: any
+    hidden: true
+  register: _quadlets_find_all
+
+- name: Find quadlet unit files carrying a marker
+  when: _quadlets_config_dir_stat.stat.isdir | default(false)
+  ansible.builtin.find:
+    paths: "{{ _quadlets_config_dir }}"
+    recurse: true
+    depth: 2
+    patterns: ["*.container", "*.volume", "*.network", "*.pod"]
+    contains: "{{ _quadlets_marker_re }}"
+    get_checksum: true
+  register: _quadlets_find_marked
+
+- name: Find plain units in the systemd directory
+  ansible.builtin.find:
+    paths: "{{ _quadlets_systemd_dir }}"
+    patterns: ["*.service", "*.timer"]
+  register: _quadlets_find_units
+
+- name: Find plain units carrying a marker
+  ansible.builtin.find:
+    paths: "{{ _quadlets_systemd_dir }}"
+    patterns: ["*.service", "*.timer"]
+    contains: "{{ _quadlets_marker_re }}"
+    get_checksum: true
+  register: _quadlets_find_units_marked
+
+- name: Check whether the apps' plain units already exist
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: true
+    get_checksum: false
+  loop: "{{ _quadlets_cfg | quadlets_unit_paths(quadlets_defaults) }}"
+  register: _quadlets_unit_stat
+
+- name: Check the bind-mount sources
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    follow: true
+    get_checksum: false
+  loop: "{{ _quadlets_cfg | quadlets_bind_sources }}"
+  register: _quadlets_bind_stat
+
+- name: Collect the scan results
+  ansible.builtin.set_fact:
+    _quadlets_scan:
+      config_entries: "{{ _quadlets_find_all.files | default([]) }}"
+      config_marked: "{{ _quadlets_find_marked.files | default([]) | map(attribute='path') | list }}"
+      unit_files: "{{ _quadlets_find_units.files | default([]) | map(attribute='path') | list }}"
+      unit_marked: "{{ _quadlets_find_units_marked.files | default([]) | map(attribute='path') | list }}"
+      unit_present: "{{ _quadlets_unit_stat.results | selectattr('stat.isreg', 'defined') | selectattr('stat.isreg') | map(attribute='item') | list }}"
+      # sha1 of our files as they are, to tell a header-only change apart
+      checksums: >-
+        {{ dict((_quadlets_find_marked.files | default([]) + _quadlets_find_units_marked.files | default([]))
+                | map(attribute='path') | zip((_quadlets_find_marked.files | default([])
+                + _quadlets_find_units_marked.files | default([])) | map(attribute='checksum'))) }}
+      adopt_markers: "{{ quadlets_adopt_markers }}"
+      regular_files: "{{ _quadlets_bind_stat.results | selectattr('stat.isreg', 'defined') | selectattr('stat.isreg') | map(attribute='item') | list }}"
+
+- name: Validate the settings and render the unit files
+  ansible.builtin.set_fact:
+    _quadlets_plan: "{{ _quadlets_cfg | quadlets_normalize(quadlets_defaults, _quadlets_scan) }}"
+  no_log: true
+
+- name: Stop on invalid settings
+  when: _quadlets_plan.errors | length > 0
+  ansible.builtin.fail:
+    msg: "{{ 'Invalid quadlets settings:\n  - ' ~ (_quadlets_plan.errors | join('\n  - ')) }}"

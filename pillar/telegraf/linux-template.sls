@@ -5,7 +5,7 @@
 # community template:
 # https://github.com/influxdata/community-templates/blob/master/linux_system/linux_system.yml
 # The same [agent] settings and the same nine inputs, writing to the InfluxDB
-# on server-01 (pillar/quadlets/server-01.sls) instead of the template's
+# on server-01 (inventory/host_vars/server-01/quadlets.yml) instead of the template's
 # $INFLUX_HOST / $INFLUX_ORG placeholders.
 # Schema: 3pfs/telegraf-formula/pillar.example; the options of each plugin
 # are the ones its files/<kind>/<plugin>.conf template reads.

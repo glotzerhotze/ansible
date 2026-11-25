@@ -1,27 +1,34 @@
-# -*- coding: utf-8 -*-
-# vim: ft=yaml
-#
-# Quadlets on rpi-01: the Salt master (cdalvaro/docker-salt-master), Pi-hole
-# and Unbound on the shared macvlan network.
-# Schema: salt/quadlets/README.md
-# Addresses: pillar/ipam.yaml
-{%- from 'ipam.jinja' import ip, mac %}
-{#- Image tags, pinned to specific versions. Renovate (renovate.json) opens a
-    pull request when a newer one is out; the renovate: comment above each
-    variable names the image its tag belongs to. A
-    changed tag is pulled and its container restarted on the next highstate;
-    raise a version here to upgrade. #}
-{#- Salt master: pin a version tag you have validated #}
-{#- renovate: depName=hub.klessen.cloud/glotzerhotze/docker-salt-master #}
-{%- set salt_master_version = '3008.5-gui' %}
-{#- renovate: depName=docker.io/pihole/pihole #}
-{%- set pihole_version = '2026.11.0' %}
-{#- renovate: depName=docker.io/klutchell/unbound #}
-{%- set unbound_version = '1.26.2' %}
-{#- TLS proxy in the salt-master pod #}
-{#- renovate: depName=docker.io/library/haproxy #}
-{%- set haproxy_version = '3.4.8-alpine' %}
 ---
+# Quadlets on rpi-01: the Ansible control node, the Salt master
+# (cdalvaro/docker-salt-master, until the migration is done), Pi-hole and
+# Unbound on the shared macvlan network.
+# Schema: roles/quadlets/README.md
+# Addresses: pillar/ipam.yaml (the ipam variable)
+
+# Image tags, pinned to specific versions. Renovate (renovate.json) opens a
+# pull request when a newer one is out; the renovate: comment above each
+# variable names the image its tag belongs to. A
+# changed tag is pulled and its container restarted on the next run;
+# raise a version here to upgrade.
+
+# Ansible control node, built by control-node/build.sh
+# renovate: depName=hub.klessen.cloud/glotzerhotze/ansible-controller
+ansible_controller_version: "2.22.0-1"
+
+# Salt master: pin a version tag you have validated
+# renovate: depName=hub.klessen.cloud/glotzerhotze/docker-salt-master
+salt_master_version: "3008.5-gui"
+
+# renovate: depName=docker.io/pihole/pihole
+pihole_version: "2026.11.0"
+
+# renovate: depName=docker.io/klutchell/unbound
+unbound_version: "1.26.2"
+
+# TLS proxy in the salt-master pod
+# renovate: depName=docker.io/library/haproxy
+haproxy_version: "3.4.8-alpine"
+
 quadlets:
   network:
     name: macvlan                 # macvlan.network -> podman network "macvlan"
@@ -29,20 +36,76 @@ quadlets:
     # dual stack: IPv4 + ULA IPv6
     ipv6: true
     subnet:
-      - {{ ip('networks:mgmt:ipv4:subnet') }}
-      - {{ ip('networks:mgmt:ipv6:subnet') }}
+      - "{{ ipam | ipam_ip('networks:mgmt:ipv4:subnet') }}"
+      - "{{ ipam | ipam_ip('networks:mgmt:ipv6:subnet') }}"
     gateway:
-      - {{ ip('networks:mgmt:ipv4:gateway') }}
-      - {{ ip('networks:mgmt:ipv6:gateway') }}
+      - "{{ ipam | ipam_ip('networks:mgmt:ipv4:gateway') }}"
+      - "{{ ipam | ipam_ip('networks:mgmt:ipv6:gateway') }}"
     Network:
       Label: role=public
-    # The Salt master runs on this network. Re-creating it stops every
-    # attached container, which would take the master down in the middle of
-    # the highstate that changed the .network unit. Podman keeps the existing
-    # network instead; re-create it by hand when its settings change.
+    # The control node (and the Salt master) run on this network.
+    # Re-creating it stops every attached container, which would take the
+    # control node down in the middle of the run that changed the .network
+    # unit. Podman keeps the existing network instead; re-create it by hand
+    # when its settings change.
     recreate_on_change: false
 
   apps:
+    # -> /etc/containers/systemd/ansible-controller/{ansible-controller.container,
+    #      ansible-controller-{repo,ssh}.volume}
+    #    ansible-controller.service, container "ansible-controller". Runs
+    #    Ansible for this repo: scripts/ansible-sync.sh copies the tree into
+    #    the repo volume, scripts/ansible.sh runs playbooks in the container.
+    #    It reaches rpi-01 itself on the macvlan shim (route3 in
+    #    pillar/nm_connections/rpi-01.sls), the other hosts on mgmt.
+    ansible-controller:
+      description: Ansible control node
+      ip: "{{ ipam | ipam_ip('hosts:rpi-01:apps:ansible-controller:ipv4') }}"
+      ip6: "{{ ipam | ipam_ip('hosts:rpi-01:apps:ansible-controller:ipv6') }}"
+      mac: "{{ ipam | ipam_mac('hosts:rpi-01:apps:ansible-controller:mac') }}"
+      # A run must not restart the container it runs in. Changes to this app
+      # (a new image tag, say) are written and take effect at the next
+      # restart, by hand when no run is going on:
+      #   ssh root@192.168.23.65 systemctl restart ansible-controller
+      restart_on_change: false
+      # podman volumes ansible-controller-repo (the repo, /srv/ansible) and
+      # ansible-controller-ssh (known_hosts), owned by the image's user
+      volumes:
+        repo:
+          Volume: &ansible_controller_volume
+            User: 1000
+            Group: 1000
+            Label: app=ansible-controller
+        ssh:
+          Volume: *ansible_controller_volume
+      containers:
+        ansible-controller:
+          image: hub.klessen.cloud/glotzerhotze/ansible-controller:{{ ansible_controller_version }}
+          environment:
+            TZ: Europe/Berlin
+            # The host this container runs on; reached on its shim address
+            # (inventory/group_vars/all/connection.yml)
+            ANSIBLE_CONTROLLER_HOST: rpi-01
+            # SSH key for root on all hosts, loaded into ssh-agent at start
+            # (control-node/entrypoint.sh). Its public key goes into
+            # /root/.ssh/authorized_keys on every host (MIGRATION.md).
+            ANSIBLE_SSH_KEY_REF: op://infra/ansible-controller/private key?ssh-format=openssh
+          volumes:
+            - volume: repo
+              target: /srv/ansible
+              options: Z
+            - volume: ssh
+              target: /home/ansible/.ssh
+              options: Z
+          Container:
+            # 1Password service account token as /run/secrets/op-token. Created
+            # by hand (MIGRATION.md): a run cannot create the secret it needs
+            # to read secrets.
+            Secret: ansible-op-token,type=mount,target=op-token,uid=1000,gid=1000,mode=0400
+          Service:
+            # if 1Password is unreachable, retry slowly (rate limit)
+            RestartSec: 30
+
     # -> /etc/containers/systemd/salt-master/{salt-master.pod,
     #      salt-master-{app,haproxy}.container,
     #      salt-master-{srv,keys,logs,config,3pfs,haproxy}.volume}
@@ -54,8 +117,8 @@ quadlets:
     salt-master:
       description: Salt master with SaltGUI behind HAProxy
       hostname: salt-master
-      ip: {{ ip('hosts:rpi-01:apps:salt-master:ipv4') }}
-      mac: "{{ mac('hosts:rpi-01:apps:salt-master:mac') }}"
+      ip: "{{ ipam | ipam_ip('hosts:rpi-01:apps:salt-master:ipv4') }}"
+      mac: "{{ ipam | ipam_mac('hosts:rpi-01:apps:salt-master:mac') }}"
       Pod:
         # lets haproxy bind 80 and 443 as its unprivileged image user (uid 99)
         PodmanArgs: --sysctl=net.ipv4.ip_unprivileged_port_start=80
@@ -76,9 +139,9 @@ quadlets:
           Volume: *salt_master_volume
         haproxy:
           Volume: *salt_master_volume
-      # podman secret "salt-api-pass", created on the host by the formula
+      # podman secret "salt-api-pass", created on the host by the role
       secrets:
-        salt-api-pass: {{ salt['onepassword.read']('op://infra/salt-master/password') | yaml_dquote }}   # keep quoted
+        salt-api-pass: "{{ lookup('op', 'op://infra/salt-master/password') }}"
       containers:
         app:
           description: Salt master with SaltGUI
@@ -150,9 +213,9 @@ quadlets:
     pihole:
       description: Pi-hole DNS
       hostname: pihole-01
-      ip: {{ ip('hosts:rpi-01:apps:pihole:ipv4') }}
-      ip6: {{ ip('hosts:rpi-01:apps:pihole:ipv6') }}
-      mac: "{{ mac('hosts:rpi-01:apps:pihole:mac') }}"
+      ip: "{{ ipam | ipam_ip('hosts:rpi-01:apps:pihole:ipv4') }}"
+      ip6: "{{ ipam | ipam_ip('hosts:rpi-01:apps:pihole:ipv6') }}"
+      mac: "{{ ipam | ipam_mac('hosts:rpi-01:apps:pihole:mac') }}"
       # podman volumes pihole-etc / pihole-dnsmasq / pihole-logs
       volumes:
         etc:
@@ -164,9 +227,9 @@ quadlets:
           Volume: *pihole_volume
         logs:
           Volume: *pihole_volume
-      # podman secret "pihole", created on the host by the formula
+      # podman secret "pihole", created on the host by the role
       secrets:
-        pihole: {{ salt['onepassword.read']('op://infra/pihole/password') | yaml_dquote }}   # keep quoted
+        pihole: "{{ lookup('op', 'op://infra/pihole/password') }}"
       containers:
         pihole:
           image: docker.io/pihole/pihole:{{ pihole_version }}
@@ -204,9 +267,9 @@ quadlets:
     # -> /etc/systemd/system/unbound-root-hints.{service,timer}
     unbound:
       description: Unbound recursive DNS resolver
-      ip: {{ ip('hosts:rpi-01:apps:unbound:ipv4') }}
-      ip6: {{ ip('hosts:rpi-01:apps:unbound:ipv6') }}
-      mac: "{{ mac('hosts:rpi-01:apps:unbound:mac') }}"
+      ip: "{{ ipam | ipam_ip('hosts:rpi-01:apps:unbound:ipv4') }}"
+      ip6: "{{ ipam | ipam_ip('hosts:rpi-01:apps:unbound:ipv6') }}"
+      mac: "{{ ipam | ipam_mac('hosts:rpi-01:apps:unbound:mac') }}"
       # podman volume unbound-etc
       volumes:
         etc:

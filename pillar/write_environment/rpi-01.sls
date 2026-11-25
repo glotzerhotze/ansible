@@ -33,7 +33,7 @@
 write_environment:
 
   # Retired: the salt-master settings and the salt-api password are in
-  # pillar/quadlets/rpi-01.sls now (podman's --env-file kept the quotes
+  # inventory/host_vars/rpi-01/quadlets.yml now (podman's --env-file kept the quotes
   # around the password). enabled: false deletes the old file, which still
   # holds the password, from the host. Drop this entry once a highstate on
   # rpi-01 has run.

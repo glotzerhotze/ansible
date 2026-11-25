@@ -1,12 +1,17 @@
 # AGENTS.md
 
-Salt states, pillar, reactor and master config for a small home fleet (Debian
-trixie hosts and Raspberry Pis). The master is a SaltGUI build of
+Configuration for a small home fleet (Debian trixie hosts and Raspberry Pis),
+in the middle of a move from Salt to Ansible (MIGRATION.md has the status
+table). Each formula is managed by exactly one of them: what is in
+`salt/top.sls` is Salt's, what is in `site.yml` is Ansible's. The Ansible part
+is described in its own section below; everything else here is about Salt.
+
+Salt states, pillar, reactor and master config for the fleet. The master is a SaltGUI build of
 [cdalvaro/docker-salt-master](https://github.com/cdalvaro/docker-salt-master),
 running under Podman on rpi-01 (`192.168.23.65`) as the container
 `salt-master-app` in the pod `salt-master` (systemd unit `salt-master-pod`),
-with haproxy in front of SaltGUI. The pod is itself a quadlet from
-`pillar/quadlets/rpi-01.sls`. Nothing in this repo runs locally. You edit
+with haproxy in front of SaltGUI. The pod is itself a quadlet, managed by
+Ansible from `inventory/host_vars/rpi-01/quadlets.yml`. Nothing in this repo runs locally. You edit
 files here, then `scripts/deploy.sh` rsyncs them into the container's volumes.
 
 ## Layout and where it lands in the container
@@ -33,7 +38,7 @@ Container conventions to follow:
 - Paths inside config and reactor files are **container** paths
   (`/home/salt/data/...`), never host or macOS paths.
 - The salt-api user is `saltgui`, which SaltGUI logs in with. It is set as
-  `SALT_API_USER` in `pillar/quadlets/rpi-01.sls` and must match
+  `SALT_API_USER` in `inventory/host_vars/rpi-01/quadlets.yml` and must match
   `external_auth` in `config/20-salt-api.conf`. The password comes from
   1Password and reaches the container as the podman secret `salt-api-pass`.
   Never put the password itself here.
@@ -95,11 +100,56 @@ Container conventions to follow:
   deleted here also disappears on the master.
 - `renovate.json`, `.github/workflows/renovate.yml`: Renovate runs weekly on
   GitHub and opens pull requests for newer image tags in
-  `pillar/quadlets/*.sls`. Every `{%- set <name>_version = '<tag>' %}` there
-  needs a `{#- renovate: depName=<image> #}` comment directly above it, so add
-  one for each new image. Merging such a PR deploys nothing.
+  `inventory/host_vars/*/quadlets.yml` and for the control-node image's
+  dependencies in `control-node/`. Every `<name>_version: "<tag>"` in the
+  quadlet settings needs a `# renovate: depName=<image>` comment directly above
+  it, so add one for each new image. Merging such a PR deploys nothing.
 
-## Conventions
+## Ansible
+
+Runs in the control-node container `ansible-controller` on rpi-01 (a quadlet
+of itself, see MIGRATION.md). You edit files here, `scripts/ansible-sync.sh`
+rsyncs the tree into the container's repo volume, and `scripts/ansible.sh`
+runs `ansible-playbook` in it.
+
+- `site.yml`: the play. Roles join it as their formula leaves `salt/top.sls`,
+  in the same change, never before.
+- `inventory/hosts.yml`: hosts by short name (the minion IDs), grouped into
+  `raspberry_pis` and `servers`. Use groups or facts where states used grains.
+- `inventory/host_vars/<host>/<role>.yml`: per-host settings, one variable per
+  role, named after the role (`quadlets`). Ansible does **not** merge a dict
+  from `group_vars` with the same dict from `host_vars`; the host's value
+  replaces it. Keep a host's settings for a role complete in one file, and let
+  the role merge them onto its defaults.
+- `inventory/group_vars/all/ipam.yml`: the `ipam` variable, read from
+  `pillar/ipam.yaml` (one copy for both tools). Look addresses up with the
+  filters in `plugins/filter/ipam.py`: `"{{ ipam | ipam_ip('hosts:rpi-01:apps:pihole:ipv4') }}"`,
+  `ipam_ips`, `ipam_cidr`, `ipam_mac`. A miss fails the run.
+- `roles/<role>/`: `defaults/main.yml` holds `<role>_defaults`, `tasks/`, a
+  `README.md` with the schema. Keep logic that would be long Jinja in a
+  filter plugin under `plugins/filter/` with tests in `tests/`, as the
+  quadlets role does (`plugins/filter/quadlets.py`).
+- `plugins/lookup/op.py`: 1Password, see Secrets.
+- `control-node/`: the image (Containerfile, ansible-core pin, collections).
+  Built by hand with `control-node/build.sh <tag>`.
+- Variables files are plain YAML. Jinja only runs inside quoted `"{{ … }}"`
+  values; a literal `{{` for an application goes in `{% raw %}…{% endraw %}`.
+- Task names describe the outcome; use fully qualified module names
+  (`ansible.builtin.file`). Tasks must be idempotent and work in check mode
+  (read-only probes get `check_mode: false` and `changed_when: false`).
+- Secrets in Ansible: `"{{ lookup('op', 'op://infra/<item>/<field>') }}"`, quoted.
+  Lookups are lazy and re-run on every use, and the service account is rate
+  limited, so a role resolves its settings once with a `no_log` `set_fact`.
+  Tasks that handle secret values use `no_log: true`, pass the values on stdin
+  (never in `environment:` or on a command line, which `ps` and `-vvv` show),
+  and loops over data containing secrets must not print it (`loop_control.label`
+  or loop over a list without the values).
+- Validate before suggesting a run: `python -m pytest tests/`,
+  `ansible-lint site.yml roles/`, `ansible-playbook --syntax-check site.yml`.
+  On the hosts, always dry-run first:
+  `scripts/ansible.sh site.yml --check --diff --limit <host>`.
+
+## Conventions (Salt)
 
 - Formulas follow the saltstack-formulas layout: `init.sls`, a `map.jinja`
   that merges `defaults.yaml` with pillar (`pillar.get(..., merge=True)`),
@@ -184,12 +234,14 @@ There is no local Salt or CI. Before suggesting a deploy:
 
 ## Do not
 
-- Run `scripts/deploy.sh`, `state.apply` without `test=True`, or anything that
-  touches `192.168.23.65` or the minions unless the user explicitly asks. Both
-  change live hosts.
+- Run `scripts/deploy.sh`, `scripts/ansible-sync.sh`, `scripts/ansible.sh`
+  (other than with `--check`), `state.apply` without `test=True`, or anything
+  that touches `192.168.23.65` or the minions unless the user explicitly asks.
+  They change live hosts.
 - Edit or commit inside `3pfs/*` submodules.
 - Hard-code host paths or minion IDs in states. Per-host data belongs in
   `pillar/<formula>/<host>.sls`.
 - Commit `.DS_Store` or `.idea/`.
-- Commit `config/onepassword.token` or any secret value. `pillar/` is
-  committed, so secrets in it must stay 1Password references.
+- Commit `config/onepassword.token` or any secret value. `pillar/` and
+  `inventory/` are committed, so secrets in them must stay 1Password
+  references.

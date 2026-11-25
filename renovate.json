@@ -1,25 +1,33 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
-  "enabledManagers": ["custom.regex", "github-actions"],
+  "enabledManagers": ["custom.regex", "github-actions", "dockerfile", "pip_requirements", "ansible-galaxy"],
   "semanticCommits": "disabled",
   "prHourlyLimit": 0,
   "prConcurrentLimit": 10,
   "prBodyNotes": [
-    "Merging deploys nothing. Run `scripts/deploy.sh`, then `state.apply quadlets test=True` on the host before the real run; a changed tag restarts the containers that use it."
+    "Merging deploys nothing. Run `scripts/ansible-sync.sh`, then `scripts/ansible.sh site.yml --tags quadlets --check --diff` before the real run; a changed tag restarts the containers that use it."
   ],
   "customManagers": [
     {
       "customType": "regex",
-      "description": "Image tags in the quadlet pillars: a `{#- renovate: depName=<image> #}` comment directly above `{%- set <name>_version = '<tag>[@sha256:<digest>]' %}`.",
-      "managerFilePatterns": ["/^pillar/quadlets/[^/]+\\.sls$/"],
+      "description": "Image tags in the quadlet settings: a `# renovate: depName=<image>` comment directly above `<name>_version: \"<tag>[@sha256:<digest>]\"`.",
+      "managerFilePatterns": ["/^inventory/host_vars/[^/]+/quadlets\\.yml$/"],
       "matchStrings": [
-        "\\{#-?\\s*renovate:\\s*depName=(?<depName>[^\\s#]+)\\s*-?#\\}\\s*\\{%-?\\s*set\\s+\\w+\\s*=\\s*'(?<currentValue>[^'@\\s]+)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?'\\s*-?%\\}"
+        "#\\s*renovate:\\s*depName=(?<depName>\\S+)\\s*\\n\\s*\\w+_version:\\s*\"(?<currentValue>[^\"@\\s]+)(?:@(?<currentDigest>sha256:[a-f0-9]{64}))?\""
       ],
       "datasourceTemplate": "docker"
     }
   ],
   "packageRules": [
+    {
+      "description": "The control-node image (base image, ansible-core, collections) is built by hand.",
+      "matchFileNames": ["control-node/**"],
+      "groupName": "control-node",
+      "prBodyNotes": [
+        "Merging changes nothing on the hosts. Build and push a new image with `control-node/build.sh <tag>`, raise `ansible_controller_version` in inventory/host_vars/rpi-01/quadlets.yml and restart the container by hand (`systemctl restart ansible-controller` on rpi-01)."
+      ]
+    },
     {
       "description": "Internal registry, not reachable from GitHub-hosted runners.",
       "matchPackageNames": ["hub.klessen.cloud/**"],
@@ -60,10 +68,10 @@
       "enabled": false
     },
     {
-      "description": "The tika container's start command in the pillar is copied from the image.",
+      "description": "The tika container's start command in the quadlet settings is copied from the image.",
       "matchPackageNames": ["docker.io/apache/tika"],
       "prBodyNotes": [
-        "Check that the image's entrypoint still matches the entrypoint/command override of the tika container in pillar/quadlets/server-01.sls."
+        "Check that the image's entrypoint still matches the entrypoint/command override of the tika container in inventory/host_vars/server-01/quadlets.yml."
       ]
     }
   ]

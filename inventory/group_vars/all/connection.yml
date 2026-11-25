@@ -1,0 +1,14 @@
+---
+# Ansible connects as root over SSH, like scripts/deploy.sh did, to the
+# host's mgmt address.
+#
+# The control-node container runs on the macvlan network of
+# ANSIBLE_CONTROLLER_HOST (rpi-01). A macvlan container cannot reach its own
+# host's eth0 address, so for that host it uses the macvlan shim address
+# instead (hosts:<host>:shim in the ipam data), the same way the host reaches
+# its containers. Outside the container the variable is unset and every host
+# is reached on mgmt.
+ansible_host: >-
+  {{ ipam | ipam_ip('hosts:' ~ inventory_hostname ~ ':'
+     ~ ('shim' if inventory_hostname == lookup('ansible.builtin.env', 'ANSIBLE_CONTROLLER_HOST') else 'mgmt')
+     ~ ':ipv4') }}

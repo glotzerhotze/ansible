@@ -1,16 +1,21 @@
-# -*- coding: utf-8 -*-
-# vim: ft=yaml
-#
-# Default settings for the quadlet formula. Everything here can be
-# overridden in pillar under the `quadlets` key.
 ---
-quadlets:
-  # Install podman with pkg.installed
+# Podman quadlets on a shared macvlan network. Port of salt/quadlets.
+#
+# Per host, everything goes into one variable, `quadlets`
+# (inventory/host_vars/<host>/quadlets.yml). It is deep-merged onto
+# quadlets_defaults below (mappings merge, lists are replaced), the way the
+# Salt formula merged pillar onto defaults.yaml. Schema: README.md.
+#
+# Keep a host's `quadlets` in one file: Ansible does not merge a dict from
+# group_vars with the same dict from host_vars, the host's value replaces it.
+
+quadlets_defaults:
+  # Install podman
   manage_package: true
   pkg: podman
 
   # When false, only the unit files are written: no daemon-reload, no image
-  # pulls, no service start/stop, no network re-creation.
+  # pulls, no secrets, no service start/stop, no network re-creation.
   manage_services: true
 
   # Rootful quadlet search path (macvlan with static IP/MAC needs rootful).
@@ -21,10 +26,15 @@ quadlets:
   # Where the plain systemd units of apps (apps:<app>:units) go
   systemd_dir: /etc/systemd/system
 
-  # Pull images during the Salt run (before the service is (re)started), so
-  # a slow pull never runs into the systemd start timeout and a bad image
-  # name fails the highstate instead of a unit.
+  # Pull images during the run (before the service is (re)started), so a
+  # slow pull never runs into the systemd start timeout and a bad image name
+  # fails the run instead of a unit.
   pull_images: true
+
+  # First line of every unit file this role writes. Files carrying it (or
+  # one of quadlets_adopt_markers) are the role's own: they are removed when
+  # they drop out of the config, hand-written ones are never touched.
+  marker: "# Managed by Ansible (quadlets role) - local changes will be overwritten"
 
   # The one macvlan network all quadlets are attached to
   network:
@@ -38,7 +48,7 @@ quadlets:
     ipv6: false
     options: {}              # extra driver options -> Options=key=value
     # Quadlet only creates a network if it does not exist yet, so changes to
-    # the .network file are ignored by podman. With this enabled the formula
+    # the .network file are ignored by podman. With this enabled the role
     # stops the attached quadlets, removes the podman network and lets it be
     # re-created whenever the .network file changes.
     recreate_on_change: true
@@ -57,3 +67,10 @@ quadlets:
       WantedBy: multi-user.target
 
   apps: {}
+
+# Markers of earlier tools whose unit files this role adopts: the Salt
+# formula's files are cleaned up like the role's own, and a file that differs
+# only in this header line gets the new one without restarting anything or
+# re-creating the network.
+quadlets_adopt_markers:
+  - "# Managed by Salt (quadlet formula) - local changes will be overwritten"

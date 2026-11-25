@@ -22,7 +22,6 @@ base:
     - write_environment.{{ short_name }}
     - write_environment.telegraf
     - acme_sh.{{ short_name }}
-    - quadlets.{{ short_name }}
     - restic.client
     - restic.{{ short_name }}
     - samba.{{ short_name }}

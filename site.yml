@@ -1,0 +1,11 @@
+---
+# The whole fleet. Roles move here from salt/top.sls one at a time; see
+# MIGRATION.md for which ones Ansible owns already.
+#
+#   ansible-playbook site.yml --check --diff              dry run
+#   ansible-playbook site.yml --limit rpi-02 --tags quadlets
+- name: Converge the fleet
+  hosts: all
+  roles:
+    - role: quadlets
+      tags: [quadlets]

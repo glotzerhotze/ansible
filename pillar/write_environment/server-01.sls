@@ -101,14 +101,14 @@ write_environment:
         # WARNING: any private image that account can see becomes pullable through this mirror.
         ttl: 168h
 
-  # The paperless settings moved into pillar/quadlets/server-01.sls
+  # The paperless settings moved into inventory/host_vars/server-01/quadlets.yml
   # (apps:paperless-ngx:containers:app:environment). This only removes the
   # old .env from the host; drop the entry once that has run.
   paperless-ngx:
     enabled: false
     path: /etc/containers/systemd/paperless-ngx/.env
 
-  # haproxy in the paperless-ngx pod (pillar/quadlets/server-01.sls): TLS on
+  # haproxy in the paperless-ngx pod (inventory/host_vars/server-01/quadlets.yml): TLS on
   # 443 in front of the web UI, plain http on 80 redirects to https. The
   # certificate paperless-ngx.pem and its key
   # paperless-ngx.pem.key are put into the same volume by the acme_sh formula
@@ -158,7 +158,7 @@ write_environment:
           # PAPERLESS_BIND_ADDR=127.0.0.1 in the same pod
           server app 127.0.0.1:8000
 
-  # haproxy in the influxdb pod (pillar/quadlets/server-01.sls): TLS on 443
+  # haproxy in the influxdb pod (inventory/host_vars/server-01/quadlets.yml): TLS on 443
   # in front of the web UI and the API, plain http on 80 redirects to https.
   # The certificate influxdb.pem and its key influxdb.pem.key are put into
   # the same volume by the acme_sh formula (pillar/acme_sh/server-01.sls).
@@ -206,7 +206,7 @@ write_environment:
           # INFLUXD_HTTP_BIND_ADDRESS=127.0.0.1:8086 in the same pod
           server influxdb 127.0.0.1:8086
 
-  # haproxy in the immich pod (pillar/quadlets/server-01.sls): TLS on 443 in
+  # haproxy in the immich pod (inventory/host_vars/server-01/quadlets.yml): TLS on 443 in
   # front of the web UI and the API the mobile apps use, plain http on 80
   # redirects to https. The certificate immich.pem and its key immich.pem.key
   # are put into the same volume by the acme_sh formula

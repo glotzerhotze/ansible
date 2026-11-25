@@ -1,45 +1,47 @@
-# -*- coding: utf-8 -*-
-# vim: ft=yaml
-#
-# Example pillar for the quadlet formula: the live setup on rpi-02
-# (pillar/quadlets/rpi-02.sls), Pi-hole and Unbound on a dual-stack macvlan.
-# Only `network.parent`, `network.subnet` and
-# `apps.<app>.containers.<name>.image` are required. All keys: README.md
 ---
-quadlets:
-  # Formula defaults, see defaults.yaml:
-  # manage_package: true
-  # manage_services: true
-  # config_dir: /etc/containers/systemd   # apps go to <config_dir>/<app>/
-  # systemd_dir: /etc/systemd/system      # plain units from apps:<app>:units
-  # pull_images: true
+# Quadlets on rpi-03: Pi-hole and Unbound on the shared macvlan network.
+# Schema: roles/quadlets/README.md
+# Addresses: pillar/ipam.yaml (the ipam variable)
 
+# Image tags, pinned to specific versions. Renovate (renovate.json) opens a
+# pull request when a newer one is out; the renovate: comment above each
+# variable names the image its tag belongs to. A
+# changed tag is pulled and its container restarted on the next run;
+# raise a version here to upgrade. podman auto-update
+# (container_defaults: auto_update: registry) only looks for a newer image
+# under the same tag, so it only picks up rebuilds of the pinned version.
+# renovate: depName=docker.io/pihole/pihole
+pihole_version: "2026.11.0"
+
+# renovate: depName=docker.io/klutchell/unbound
+unbound_version: "v1.26.2"
+
+quadlets:
   network:
     name: macvlan                 # macvlan.network -> podman network "macvlan"
     parent: eth0                  # same as PodmanArgs=--interface-name=eth0
     # dual stack: IPv4 + ULA IPv6
     ipv6: true
     subnet:
-      - 192.168.23.0/24
-      - fd23:dead:f00d:1::/64
+      - "{{ ipam | ipam_ip('networks:mgmt:ipv4:subnet') }}"
+      - "{{ ipam | ipam_ip('networks:mgmt:ipv6:subnet') }}"
     gateway:
-      - 192.168.23.254
-      - fd23:dead:f00d:1::1
+      - "{{ ipam | ipam_ip('networks:mgmt:ipv4:gateway') }}"
+      - "{{ ipam | ipam_ip('networks:mgmt:ipv6:gateway') }}"
     Network:
       Label: role=public
+    recreate_on_change: true
 
-  # Merged into every container below (container settings win)
   container_defaults:
     auto_update: registry         # pairs with podman-auto-update.timer
 
   apps:
-    # -> /etc/containers/systemd/pihole/{pihole.container,pihole-*.volume}
-    #    pihole.service, container "pihole"
     pihole:
       description: Pi-hole DNS
-      hostname: pihole-03
-      ip: 192.168.23.32
-      mac: '02:ac:1d:fe:ed:20'    # always quote MACs
+      hostname: pihole-02
+      ip: "{{ ipam | ipam_ip('hosts:rpi-03:apps:pihole:ipv4') }}"
+      ip6: "{{ ipam | ipam_ip('hosts:rpi-03:apps:pihole:ipv6') }}"
+      mac: "{{ ipam | ipam_mac('hosts:rpi-03:apps:pihole:mac') }}"
       # podman volumes pihole-etc / pihole-dnsmasq / pihole-logs
       volumes:
         etc:
@@ -51,17 +53,19 @@ quadlets:
           Volume: *pihole_volume
         logs:
           Volume: *pihole_volume
-      # podman secret "pihole", created on the host by the formula. In the
-      # real pillar the value comes from 1Password (keep it quoted):
-      #   pihole: salt['onepassword.read']('op://infra/pihole/password') | yaml_dquote
-      # wrapped in a Jinja expression.
+      # podman secret "pihole", created on the host by the role
       secrets:
-        pihole: "<from 1Password: op://infra/pihole/password>"
+        pihole: "{{ lookup('op', 'op://infra/pihole/password') }}"
       containers:
         pihole:
-          image: docker.io/pihole/pihole:latest
+          image: docker.io/pihole/pihole:{{ pihole_version }}
           environment:
             TZ: Europe/Berlin
+            # name on the Let's Encrypt certificate in /etc/pihole/tls.pem
+            # (acme_sh/rpi-03.sls); validity 0 keeps FTL from replacing it
+            # with a self-signed one
+            FTLCONF_webserver_domain: ph-02.mgmt.gz.klessen.cloud
+            FTLCONF_webserver_tls_validity: '0'
           volumes:
             - volume: etc
               target: /etc/pihole
@@ -72,12 +76,12 @@ quadlets:
             - volume: logs
               target: /var/log/pihole
               options: Z
-          # Raw sections: any capitalized key is written as-is into that section
           Container:
             AddCapability: [CAP_NET_BIND_SERVICE, CAP_NET_RAW, CAP_NET_ADMIN, CAP_SYS_NICE, CAP_CHOWN, CAP_SYS_TIME]
             # web UI / API password from the app secret above
             Secret: pihole,type=env,target=FTLCONF_webserver_api_password
-            # Has no effect on macvlan (the container answers on its own IP)
+            # Has no effect on macvlan (the container answers on its own IP);
+            # kept from the original unit.
             PublishPort:
               - 53:53/tcp
               - 53:53/udp
@@ -89,8 +93,9 @@ quadlets:
     # -> /etc/systemd/system/unbound-root-hints.{service,timer}
     unbound:
       description: Unbound recursive DNS resolver
-      ip: 192.168.23.144
-      mac: 'de:ad:c0:ff:ee:90'
+      ip: "{{ ipam | ipam_ip('hosts:rpi-03:apps:unbound:ipv4') }}"
+      ip6: "{{ ipam | ipam_ip('hosts:rpi-03:apps:unbound:ipv6') }}"
+      mac: "{{ ipam | ipam_mac('hosts:rpi-03:apps:unbound:mac') }}"
       # podman volume unbound-etc
       volumes:
         etc:
@@ -125,7 +130,7 @@ quadlets:
             WantedBy: timers.target
       containers:
         unbound:
-          image: hub.klessen.cloud/klutchell/unbound:main
+          image: docker.io/klutchell/unbound:{{ unbound_version }}
           environment:
             TZ: Europe/Berlin
           volumes:
@@ -133,7 +138,8 @@ quadlets:
               target: /etc/unbound/custom.conf.d
           Container:
             AddCapability: [CAP_NET_BIND_SERVICE, CAP_NET_RAW, CAP_NET_ADMIN, CAP_SYS_NICE, CAP_CHOWN, CAP_SYS_TIME]
-            # Has no effect on macvlan (the container answers on its own IP)
+            # Has no effect on macvlan (the container answers on its own IP);
+            # kept from the original unit.
             PublishPort:
               - '[::]:5335:5335/tcp'
               - '[::]:5335:5335/udp'

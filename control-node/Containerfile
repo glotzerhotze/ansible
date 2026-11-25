@@ -1,0 +1,50 @@
+# Ansible control node for this repo. Runs as the quadlet app
+# "ansible-controller" on rpi-01 (inventory/host_vars/rpi-01/quadlets.yml).
+# Build and push: control-node/build.sh <tag>
+FROM docker.io/library/debian:trixie-slim
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+# 1Password CLI from 1Password's apt repository (same commands for amd64 and
+# arm64): https://www.1password.dev/cli/get-started
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      bash ca-certificates curl git gnupg less openssh-client python3 python3-venv rsync tini \
+ && curl -fsSL https://downloads.1password.com/linux/keys/1password.asc \
+      | gpg --dearmor --output /usr/share/keyrings/1password-archive-keyring.gpg \
+ && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/1password-archive-keyring.gpg] https://downloads.1password.com/linux/debian/$(dpkg --print-architecture) stable main" \
+      > /etc/apt/sources.list.d/1password.list \
+ && mkdir -p /etc/debsig/policies/AC2D62742012EA22 /usr/share/debsig/keyrings/AC2D62742012EA22 \
+ && curl -fsSL https://downloads.1password.com/linux/debian/debsig/1password.pol \
+      -o /etc/debsig/policies/AC2D62742012EA22/1password.pol \
+ && curl -fsSL https://downloads.1password.com/linux/keys/1password.asc \
+      | gpg --dearmor --output /usr/share/debsig/keyrings/AC2D62742012EA22/debsig.gpg \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends 1password-cli \
+ && rm -rf /var/lib/apt/lists/*
+
+# Ansible in a venv, collections where every user finds them
+COPY requirements.txt requirements.yml /tmp/
+RUN python3 -m venv /opt/ansible \
+ && /opt/ansible/bin/pip install --no-cache-dir -r /tmp/requirements.txt \
+ && /opt/ansible/bin/ansible-galaxy collection install -r /tmp/requirements.yml \
+      -p /usr/share/ansible/collections \
+ && rm /tmp/requirements.txt /tmp/requirements.yml
+
+RUN useradd --uid 1000 --create-home --shell /bin/bash ansible \
+ && install -d -o ansible -g ansible -m 0700 /home/ansible/.ssh \
+ && install -d -o ansible -g ansible -m 0755 /srv/ansible
+
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+
+# The repo (scripts/ansible-sync.sh copies it into a volume mounted here)
+WORKDIR /srv/ansible
+USER ansible
+ENV PATH=/opt/ansible/bin:$PATH \
+    SSH_AUTH_SOCK=/tmp/ssh-agent.sock \
+    OP_SERVICE_ACCOUNT_TOKEN_FILE=/run/secrets/op-token \
+    ANSIBLE_FORCE_COLOR=1
+
+ENTRYPOINT ["/usr/bin/tini", "--", "/usr/local/bin/entrypoint.sh"]
+# Stay up; run playbooks with `podman exec` (scripts/ansible.sh)
+CMD ["sleep", "infinity"]

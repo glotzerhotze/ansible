@@ -1,5 +1,7 @@
 # Self-hosted Renovate: opens pull requests for newer image tags in
-# pillar/quadlets/*.sls and for the actions below. Configuration: renovate.json.
+# inventory/host_vars/*/quadlets.yml, for the control-node image's
+# dependencies (control-node/) and for the actions below. Configuration:
+# renovate.json.
 #
 # Needs the repository secret RENOVATE_TOKEN: a fine-grained personal access
 # token (or GitHub App token) for this repository with read/write access to

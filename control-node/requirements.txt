@@ -1,0 +1,4 @@
+# Python packages of the control-node image. ansible-core 2.22 needs
+# Python 3.12+ on the control node (Debian trixie: 3.13) and runs modules on
+# Python 3.9+ targets.
+ansible-core==2.22.0

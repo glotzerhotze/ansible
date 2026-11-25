@@ -1,8 +1,8 @@
-# quadlet-formula
+# quadlets role
 
-Salt formula that rolls out rootful [Podman Quadlets](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) from pillar. A quadlet here is an **app**: one or more containers in their own directory `/etc/containers/systemd/<app>/`. An app with several containers runs them in a **pod**, so they share one network namespace (`localhost`). Every app is attached to one shared **macvlan** network with a configurable static **IP and MAC address**, and can use any number of **volumes** (named podman volumes shared by its containers, host directories, or raw `--volume` specs).
+Ansible role that rolls out rootful [Podman Quadlets](https://docs.podman.io/en/latest/markdown/podman-systemd.unit.5.html) from the host's `quadlets` variable. A quadlet here is an **app**: one or more containers in their own directory `/etc/containers/systemd/<app>/`. An app with several containers runs them in a **pod**, so they share one network namespace (`localhost`). Every app is attached to one shared **macvlan** network with a configurable static **IP and MAC address**, and can use any number of **volumes** (named podman volumes shared by its containers, host directories, or raw `--volume` specs).
 
-Rendering was checked with a masterless Salt 3007 run. The generated units have not yet been run through Podman's quadlet generator in this layout.
+It is a port of the Salt formula `salt/quadlets`. For the same settings it writes byte-identical unit files apart from the header line. This was checked against Salt 3008.5 for all four hosts. The logic lives in `plugins/filter/quadlets.py`, and the tasks only carry out the plan it returns. Tests: `python -m pytest tests/`.
 
 ## Requirements
 
@@ -13,24 +13,28 @@ Rendering was checked with a masterless Salt 3007 run. The generated units have 
 ## Usage
 
 ```yaml
-# top.sls
-base:
-  'container-host*':
-    - quadlets
+# site.yml
+- hosts: all
+  roles:
+    - role: quadlets
+      tags: [quadlets]
 ```
 
-| State                 | Does                                                                   |
-| --------------------- | ---------------------------------------------------------------------- |
-| `quadlets`            | Everything below. Use this one.                                        |
-| `quadlets.package`    | Installs podman                                                        |
-| `quadlets.config`     | Quadlet directory, `systemctl daemon-reload` when any unit changed     |
-| `quadlets.network`    | The macvlan `.network` unit and its service                            |
-| `quadlets.apps`       | App directories, `.pod`/`.container`/`.volume` units, bind dirs, image pulls, services |
-| `quadlets.clean`      | Stops and removes apps that left the pillar or are `absent: true`      |
+```sh
+ansible-playbook site.yml --tags quadlets --limit rpi-02 --check --diff   # dry run
+```
 
-## Pillar
+| Tasks file      | Does                                                                   |
+| --------------- | ---------------------------------------------------------------------- |
+| `main.yml`      | Everything below, in this order                                        |
+| `prepare.yml`   | Resolves the settings (1Password reads happen once, here), scans the host, validates, renders |
+| `clean.yml`     | Stops and removes apps that left the settings or are `absent: true`    |
+| `apply.yml`     | App directories, bind dirs, unit files, secrets, image pulls           |
+| `services.yml`  | One `daemon-reload`, network re-creation, then start/restart/stop      |
 
-See `pillar.example.sls` for a complete, commented example. Minimal:
+## Settings
+
+One variable per host, `quadlets`, in `inventory/host_vars/<host>/quadlets.yml`. The four hosts there are complete, commented examples. Minimal:
 
 ```yaml
 quadlets:
@@ -58,7 +62,7 @@ quadlets:
 
 This writes `lan.network`, `web/web.container` and `web/web-html.volume` below `/etc/containers/systemd`, and runs `web.service` with container name `web` at 192.168.10.50 / 02:42:c0:a8:0a:32.
 
-### `quadlets:network`
+### `quadlets.network`
 
 | Key                  | Default   | Meaning                                                                 |
 | -------------------- | --------- | ----------------------------------------------------------------------- |
@@ -75,7 +79,7 @@ This writes `lan.network`, `web/web.container` and `web/web-html.volume` below `
 
 The network is shared by all apps, so its unit stays directly in `/etc/containers/systemd`.
 
-### `quadlets:apps:<app>`
+### `quadlets.apps.<app>`
 
 | Key             | Default   | Meaning                                                                     |
 | --------------- | --------- | --------------------------------------------------------------------------- |
@@ -93,13 +97,14 @@ The network is shared by all apps, so its unit stays directly in `/etc/container
 | `enabled`       | `true`    | `false` drops `[Install]`, so nothing starts at boot                        |
 | `absent`        | `false`   | Stop the services and delete the app's units, directory, secrets and systemd units |
 | `purge_volumes` | `false`   | With `absent`, also `podman volume rm` its named volumes                     |
+| `restart_on_change` | `true` | `false`: changes are written, but the services are not restarted for them. For the control-node container, which a run must not restart under itself |
 | `Pod`, `Unit`, `Service`, `Install` | | Raw sections of the `.pod` unit (pods only)                |
 
 `ip`, `mac`, `hostname` and `dns` belong to the app: in a pod they are set on the pod (the containers share its network namespace), otherwise on the single container.
 
 Unit names follow the app name. The pod is `<app>.pod` → `<app>-pod.service`, pod name `<app>`. A container with the same name as its app is `<app>.container` → `<app>.service`, every other one is `<app>-<container>.container` → `<app>-<container>.service`. Container names default to the unit name.
 
-### `quadlets:apps:<app>:containers:<name>`
+### `quadlets.apps.<app>.containers.<name>`
 
 | Key                 | Default        | Meaning                                                             |
 | ------------------- | -------------- | ------------------------------------------------------------------- |
@@ -112,10 +117,10 @@ Unit names follow the app name. The pod is `<app>.pod` → `<app>-pod.service`, 
 | `command`           |                | `Exec=` (arguments after the image)                                 |
 | `entrypoint`, `user`, `group`, `auto_update` | | Map to the Quadlet keys of the same name                  |
 | `volumes`           | `[]`           | Mounts, see below                                                   |
-| `pull`              | `true`         | Pre-pull the image during the Salt run                              |
+| `pull`              | `true`         | Pre-pull the image during the run                                   |
 | `Container`, `Unit`, `Service`, `Install`, `Quadlet` | | Raw unit sections, written as-is      |
 
-`quadlets:container_defaults` is merged into every container. By default it sets `Restart=always`, `TimeoutStartSec=900` and `WantedBy=multi-user.target`. `quadlets:pod_defaults` does the same for pods (`WantedBy=multi-user.target`).
+`quadlets.container_defaults` is merged into every container. By default it sets `Restart=always`, `TimeoutStartSec=900` and `WantedBy=multi-user.target`. `quadlets.pod_defaults` does the same for pods (`WantedBy=multi-user.target`).
 
 **Raw sections.** Any capitalized key is a unit section and its keys go into the file unchanged. A list value repeats the key:
 
@@ -175,13 +180,13 @@ volumes:
 
 ### Secrets
 
-Values come from pillar (in this repo: 1Password via `onepassword.read`) and become podman secrets on the host. Containers use them with the regular `Secret=` key, so the value never ends up in a unit file:
+Values come from the settings (in this repo: 1Password via the `op` lookup, `plugins/lookup/op.py`) and become podman secrets on the host. Containers use them with the regular `Secret=` key, so the value never ends up in a unit file:
 
 ```yaml
 apps:
   pihole:
     secrets:
-      pihole: {{ salt['onepassword.read']('op://infra/pihole/password') | yaml_dquote }}
+      pihole: "{{ lookup('op', 'op://infra/pihole/password') }}"
     containers:
       pihole:
         Container:
@@ -189,14 +194,15 @@ apps:
 ```
 
 - The name is the podman secret name, which is global on the host, so it must be unique across apps.
-- The value is passed on stdin (`podman secret create --replace <name> -`) and compared via an environment variable. It is never on a command line, and the command output is hidden.
+- The value travels on stdin only, both for the comparison and for `podman secret create --replace <name> -`. It is never on a command line or in the environment, where `ps` and `-vvv` output would show it, and the tasks run with `no_log`. Within the role, secret values only exist in `_quadlets_plan.secrets`, which only `no_log` tasks loop over.
 - The secret is only replaced when the stored value differs. Containers that reference it via `Container:Secret` are then restarted.
 - Empty or non-string values are rejected, so a failed lookup never replaces a working secret with an empty one.
-- Secrets are created only with `manage_services: true`. Removing an app (`absent: true`) removes its secrets. A secret that is only dropped from pillar stays on the host.
+- Secrets are created only with `manage_services: true`. Removing an app (`absent: true`) removes its secrets. A secret that is only dropped from the settings stays on the host.
+- The comparison also runs under `--check`, so a dry run shows which secrets would be replaced.
 
 ### Systemd units
 
-Helper jobs that are not containers (downloads, backups, clean-ups) can be added as plain systemd units. Quadlet does not process `.service`/`.timer` files, so they are written to `systemd_dir` (`/etc/systemd/system`) with the formula's header line:
+Helper jobs that are not containers (downloads, backups, clean-ups) can be added as plain systemd units. Quadlet does not process `.service`/`.timer` files, so they are written to `systemd_dir` (`/etc/systemd/system`) with the role's header line:
 
 ```yaml
 apps:
@@ -224,18 +230,19 @@ apps:
 
 - Keys are the unit file names and must end in `.service` or `.timer`. The values hold only raw sections. A list value repeats the key, as for multiple `ExecStart=` lines in a oneshot.
 - Timers follow the app: started with `running`, enabled with `enabled` (when they have `[Install]`). Services with `[Install]` are only enabled or disabled, never started, because a timer or a dependency starts them. Services without `[Install]` are just written.
-- A hand-written unit with the same name in `systemd_dir` aborts the render. Units dropped from pillar, or belonging to an absent app, are stopped, disabled and deleted. Only files with the header line are touched.
+- A hand-written unit with the same name in `systemd_dir` stops the run before anything changes. Units dropped from the settings, or belonging to an absent app, are stopped, disabled and deleted. Only files with the header line are touched.
 - Unit names share the global namespace with the generated quadlet services, and clashes are rejected. A name that matches a distro unit (in `/usr/lib/systemd/system`) overrides it.
 
 ## Behaviour
 
-- **No pillar, no action.** A minion without any `quadlets` pillar gets a single no-op state, so the formula can be targeted at `'*'`. An empty `quadlets` mapping with `apps: {}` still runs the clean-up.
+- **No settings, no action.** A host without a `quadlets` variable skips the role, so it can run on every host. An empty `quadlets` mapping with `apps: {}` still runs the clean-up.
 
-- **Validation.** A broken pillar aborts rendering with a list of every problem, before anything is changed. It checks for: missing image, unknown option (typo), app settings on a container and vice versa, IP outside the subnet or equal to the gateway, duplicate IP/MAC across apps, malformed or multicast MAC, unquoted MAC, mounts of undefined volumes, volumes without target or with relative paths, pod-owned keys on pod containers, clashing unit names, and a hand-written unit with the same file name elsewhere under `/etc/containers/systemd` (Quadlet unit names are global across subdirectories).
+- **Validation.** Invalid settings stop the run with a list of every problem, before anything is changed. It checks for: missing image, unknown option (typo), app settings on a container and vice versa, IP outside the subnet or equal to the gateway, duplicate IP/MAC across apps, malformed or multicast MAC, unquoted MAC, mounts of undefined volumes, volumes without target or with relative paths, pod-owned keys on pod containers, clashing unit names, and a hand-written unit with the same file name elsewhere under `/etc/containers/systemd` (Quadlet unit names are global across subdirectories).
 - **Changes** to a `.container` or `.volume` unit trigger one `daemon-reload` and a restart of the containers using it. A changed `.pod` restarts the pod and its containers.
-- **Images** are pulled during the Salt run, so a slow pull never hits the systemd start timeout and a typo fails the highstate.
-- **Network changes.** Podman never updates an existing network from a changed `.network` unit. With `recreate_on_change` the formula stops everything attached (systemd propagates the stop through `Requires=`), removes the podman network and starts everything again on the new network. This is skipped on the very first rollout, so a pre-existing network with the same name is never deleted.
-- **Removal.** Deleting an app or a container from pillar, or setting `absent: true`, stops the services and deletes the unit files before any new container starts, so an IP or MAC can be reused in the same run. An app directory is deleted once nothing but such files is left in it. Only files with the formula's header line are touched; hand-written quadlets are left alone. Units from the earlier flat layout (directly in `/etc/containers/systemd`) are cleaned up the same way. Named volume data is kept unless `purge_volumes: true`.
+- **Images** are pulled during the run, so a slow pull never hits the systemd start timeout and a typo fails the run.
+- **Network changes.** Podman never updates an existing network from a changed `.network` unit. With `recreate_on_change` the role stops everything attached (systemd propagates the stop through `Requires=`), removes the podman network and starts everything again on the new network. This is skipped on the very first rollout, so a pre-existing network with the same name is never deleted.
+- **Removal.** Deleting an app or a container from the settings, or setting `absent: true`, stops the services and deletes the unit files before any new container starts, so an IP or MAC can be reused in the same run. An app directory is deleted once nothing but such files is left in it. Only files with the role's header line (or the Salt formula's) are touched; hand-written quadlets are left alone. Named volume data is kept unless `purge_volumes: true`.
+- **Check mode.** `--check --diff` shows the unit file diffs, which secrets differ and which images are missing. Services of apps that do not exist yet are reported but cannot be checked, because no `daemon-reload` happens in check mode.
 - **Boot.** Quadlet services cannot be `systemctl enable`d. Boot start comes from the `[Install]` section that the generator applies. `enabled: false` removes it.
 
 ## Things to know about macvlan
@@ -254,3 +261,10 @@ apps:
 - Keep static IPs out of your DHCP server's pool, and out of `ip_range` if you set one.
 - Some switches and Wi-Fi access points drop frames from multiple MACs on one port. On Wi-Fi, use `ipvlan` instead (`network: {driver: ipvlan}`); MACs then don't apply.
 - Unit names are global. An app called `nginx` generates `nginx.service` and shadows a distro `nginx.service`.
+
+## Differences from the Salt formula
+
+- **Header line.** Unit files start with `# Managed by Ansible (quadlets role) - …`. Files with the Salt formula's header (`quadlets_adopt_markers`) count as the role's own. A file that differs from the new rendering only in that header line is rewritten without restarting anything or re-creating the network. Taking over a host from Salt therefore costs one `daemon-reload` and nothing else.
+- **One variable per host.** Ansible does not deep-merge a host's `quadlets` with a `quadlets` from group_vars: the host's value replaces it. Keep each host's settings complete in `host_vars/<host>/quadlets.yml`. The role merges them onto `quadlets_defaults`, which works like the formula's `defaults.yaml`.
+- **`restart_on_change`** is new (see the app table).
+- **Bind directories** behave as in the formula: a source that exists as a regular file is left alone, and directories are ensured on every run, with owner and mode when set.

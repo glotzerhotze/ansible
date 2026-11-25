@@ -1,0 +1,6 @@
+---
+# Every IP and MAC address of the fleet. While Salt still renders pillar from
+# it, the data stays in pillar/ipam.yaml and is read from there, so there is
+# one copy. Use it through the filters in plugins/filter/ipam.py:
+#   "{{ ipam | ipam_ip('hosts:rpi-01:apps:pihole:ipv4') }}"
+ipam: "{{ lookup('ansible.builtin.file', inventory_dir ~ '/../pillar/ipam.yaml') | from_yaml }}"

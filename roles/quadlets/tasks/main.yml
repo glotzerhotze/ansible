@@ -1,0 +1,37 @@
+---
+# Full rollout: podman, the macvlan network, all apps of the host, and
+# removal of apps that were dropped or marked absent. Hosts without a
+# `quadlets` variable are left alone, so the role can run on every host.
+# (An empty `quadlets: {apps: {}}` still cleans up.)
+
+- name: Skip hosts without quadlets
+  when: quadlets | default({}) | length == 0
+  ansible.builtin.meta: end_role
+
+- name: Scan the host and validate the settings
+  ansible.builtin.include_tasks: prepare.yml
+
+- name: Install podman
+  when: _quadlets_plan.settings.manage_package | bool
+  ansible.builtin.package:
+    name: "{{ _quadlets_plan.settings.pkg }}"
+    state: present
+
+- name: Create the quadlet directory
+  ansible.builtin.file:
+    path: "{{ _quadlets_plan.config_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  register: _quadlets_config_dir_result
+
+- name: Remove quadlets that left the settings
+  ansible.builtin.include_tasks: clean.yml
+
+- name: Write unit files, secrets and images
+  ansible.builtin.include_tasks: apply.yml
+
+- name: Reload systemd and converge the services
+  when: _quadlets_plan.settings.manage_services | bool
+  ansible.builtin.include_tasks: services.yml

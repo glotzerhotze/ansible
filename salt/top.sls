@@ -22,7 +22,7 @@ base:
 {%- if 'raspberry pi' not in grains.get('productname', '') | lower %}
     - packages.backports_kernel
 {%- endif %}
-    - quadlets
+    # quadlets: moved to Ansible (roles/quadlets, MIGRATION.md)
     - restic.client
     - telegraf.agent
 

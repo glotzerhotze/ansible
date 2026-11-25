@@ -1,0 +1,115 @@
+---
+# One subdirectory per app under config_dir, holding its .volume units, its
+# .pod unit (when the containers share a pod) and one .container unit per
+# container, plus host directories for bind mounts, the app's podman secrets
+# and its images.
+
+- name: Check whether the network unit exists already
+  ansible.builtin.stat:
+    path: "{{ _quadlets_plan.network.file }}"
+    get_checksum: false
+  register: _quadlets_network_before
+
+- name: Create app directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "0755"
+  loop: "{{ _quadlets_plan.apps | map(attribute='dir') | list }}"
+
+- name: Create bind-mount directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.user if item.user is not none else omit }}"
+    group: "{{ item.group if item.group is not none else omit }}"
+    mode: "{{ item.mode | string if item.mode is not none else omit }}"
+  loop: "{{ _quadlets_plan.bind_dirs }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Write unit files
+  ansible.builtin.copy:
+    dest: "{{ item.path }}"
+    content: "{{ item.content }}"
+    owner: root
+    group: root
+    mode: "0644"
+  loop: "{{ _quadlets_plan.files }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: _quadlets_files
+
+# The value only travels through stdin, never on a command line or in the
+# environment (both show up in `ps` and in -vvv output), and nothing it prints
+# is shown. It is replaced only when the stored value differs. The comparison
+# also runs in check mode, so --check shows which secrets would change.
+- name: Compare podman secrets
+  when: _quadlets_plan.settings.manage_services | bool
+  ansible.builtin.shell: |
+    current="$(podman secret inspect --showsecret --format '{{ "{{" }}.SecretData{{ "}}" }}' "$NAME" 2>/dev/null)" \
+      || { echo differs; exit 0; }
+    new="$(cat)"
+    if [ "$current" = "$new" ]; then echo same; else echo differs; fi
+  args:
+    stdin: "{{ item.value }}"
+    stdin_add_newline: false
+  environment:
+    NAME: "{{ item.name }}"
+  loop: "{{ _quadlets_plan.secrets }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: _quadlets_secret_check
+  changed_when: false
+  check_mode: false
+  no_log: true
+
+- name: Create or replace podman secrets
+  when:
+    - _quadlets_plan.settings.manage_services | bool
+    - item.stdout == 'differs'
+  ansible.builtin.command:
+    argv:
+      - podman
+      - secret
+      - create
+      - --replace
+      - --label
+      - "app={{ item.item.app }}"
+      - --label
+      - managed-by=ansible-quadlets
+      - "{{ item.item.name }}"
+      - "-"
+    stdin: "{{ item.item.value }}"
+    stdin_add_newline: false
+  loop: "{{ _quadlets_secret_check.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.name }}"
+  register: _quadlets_secrets
+  changed_when: true
+  no_log: true
+
+- name: Check which images are present
+  when:
+    - _quadlets_plan.settings.manage_services | bool
+    - _quadlets_plan.pulls | length > 0
+  ansible.builtin.command:
+    argv: [podman, image, exists, "{{ item }}"]
+  loop: "{{ _quadlets_plan.pulls | unique }}"
+  register: _quadlets_images
+  changed_when: false
+  failed_when: _quadlets_images.rc not in [0, 1]
+  check_mode: false
+
+- name: Pull missing images
+  when:
+    - _quadlets_plan.settings.manage_services | bool
+    - item.rc == 1
+  ansible.builtin.command:
+    argv: [podman, pull, "{{ item.item }}"]
+  loop: "{{ _quadlets_images.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+  changed_when: true

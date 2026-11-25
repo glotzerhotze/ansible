@@ -69,6 +69,7 @@ nm_connections:
         ipv4.address1: {{ ip('hosts:rpi-01:shim:ipv4') }}/32
         ipv4.route1: {{ ip('hosts:rpi-01:apps:pihole:ipv4') }}/32       # ph-01.mgmt.klessen.cloud
         ipv4.route2: {{ ip('hosts:rpi-01:apps:unbound:ipv4') }}/32      # unbound-01
+        ipv4.route3: {{ ip('hosts:rpi-01:apps:ansible-controller:ipv4') }}/32  # Ansible control node
         ipv4.route4: {{ ip('hosts:rpi-01:apps:salt-master:ipv4') }}/32  # salt-master.klessen.cloud
         ipv6.method: auto
         ipv6.addr-gen-mode: default

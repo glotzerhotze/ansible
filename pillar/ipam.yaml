@@ -1,8 +1,9 @@
 # IP and MAC addresses of the fleet, in one place.
 #
 # Not a pillar file of its own (top.sls only picks up *.sls). The pillar
-# files under nm_connections/, quadlets/ and write_environment/ read it
-# through the helpers in ipam.jinja, which also documents how. Change an
+# files under nm_connections/ and write_environment/ read it through the
+# helpers in ipam.jinja, which also documents how. Ansible reads the same
+# file (inventory/group_vars/all/ipam.yml) through plugins/filter/ipam.py. Change an
 # address here, deploy, and every profile, quadlet and config file that uses
 # it follows.
 #
@@ -12,7 +13,8 @@
 #   hosts:<host>:shim:ipv4          host side of the macvlan network
 #                                   (macvlan-shim profile, a /32 on mgmt)
 #   hosts:<host>:apps:<app>         container on the macvlan network, named
-#                                   like the app in quadlets/<host>.sls:
+#                                   like the app in the host's quadlets
+#                                   (inventory/host_vars/<host>/quadlets.yml):
 #                                   ipv4, ipv6 and mac
 #
 # Apps follow one scheme: ipv6 is the mgmt ipv6 prefix plus the last ipv4
@@ -52,6 +54,10 @@ hosts:
         ipv4: 192.168.23.98
         ipv6: 'fd42:ac1d:feed:1::62'
         mac:  '02:ac:1d:fe:ed:62'
+      ansible-controller:
+        ipv4: 192.168.23.108
+        ipv6: 'fd42:ac1d:feed:1::6c'
+        mac:  '02:ac:1d:fe:ed:6c'
 
   rpi-02:
     mgmt:   {ipv4: 192.168.23.66}

@@ -1,0 +1,109 @@
+---
+# Removes quadlets this role (or the Salt formula) wrote earlier but which
+# are no longer in the settings, or whose app is marked `absent: true`. Only
+# files carrying a marker are touched; hand-written quadlets in the same
+# directories are left alone. Services are stopped before their unit files
+# disappear, and all of this happens before new containers start, so a
+# re-used IP or MAC is free. An app subdirectory is removed once it held
+# nothing but such orphans.
+
+- name: Read ServiceName= of orphaned unit files
+  when: _quadlets_orphans | length > 0
+  ansible.builtin.command:
+    argv: "{{ ['grep', '-H', '^ServiceName='] + _quadlets_orphans }}"
+  vars:
+    _quadlets_orphans: "{{ _quadlets_plan | quadlets_orphans(_quadlets_scan) }}"
+  register: _quadlets_grep
+  changed_when: false
+  failed_when: _quadlets_grep.rc > 1
+  check_mode: false
+
+- name: Work out what to remove
+  ansible.builtin.set_fact:
+    _quadlets_clean: >-
+      {{ _quadlets_plan | quadlets_clean(_quadlets_scan,
+             _quadlets_grep.stdout_lines | default([]) | quadlets_service_names) }}
+
+- name: Stop orphaned quadlet services
+  when: _quadlets_plan.settings.manage_services | bool
+  ansible.builtin.systemd_service:
+    name: "{{ item.service }}"
+    state: stopped
+  loop: "{{ _quadlets_clean.orphans }}"
+  loop_control:
+    label: "{{ item.service }}"
+  register: _quadlets_stop
+  failed_when: >-
+    _quadlets_stop.failed | default(false)
+    and 'Could not find the requested service' not in (_quadlets_stop.msg | default(''))
+
+- name: Remove orphaned quadlet unit files
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ _quadlets_clean.orphans }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: _quadlets_orphans_removed
+
+# A network unit the role owned (e.g. after renaming the network)
+- name: Remove orphaned podman networks
+  when: _quadlets_plan.settings.manage_services | bool
+  ansible.builtin.shell: |
+    if podman network exists "$NAME"; then podman network rm -f "$NAME" >/dev/null && echo removed; fi
+  environment:
+    NAME: "{{ item }}"
+  loop: "{{ _quadlets_clean.networks_rm }}"
+  register: _quadlets_network_rm
+  changed_when: "'removed' in _quadlets_network_rm.stdout"
+
+- name: Stop and disable orphaned plain units
+  when: _quadlets_plan.settings.manage_services | bool
+  ansible.builtin.systemd_service:
+    name: "{{ item.name }}"
+    state: stopped
+    enabled: false
+  loop: "{{ _quadlets_clean.unit_orphans }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: _quadlets_unit_stop
+  failed_when: >-
+    _quadlets_unit_stop.failed | default(false)
+    and 'Could not find the requested service' not in (_quadlets_unit_stop.msg | default(''))
+
+- name: Remove orphaned plain unit files
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ _quadlets_clean.unit_orphans }}"
+  loop_control:
+    label: "{{ item.path }}"
+  register: _quadlets_units_removed
+
+- name: Remove app directories that held only orphans
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop: "{{ _quadlets_clean.orphan_dirs }}"
+
+# Secrets of an absent app are removed. Data of named volumes is kept
+# unless the app says purge_volumes.
+- name: Remove secrets of absent apps
+  when: _quadlets_plan.settings.manage_services | bool
+  ansible.builtin.shell: |
+    if podman secret exists "$NAME"; then podman secret rm "$NAME" >/dev/null && echo removed; fi
+  environment:
+    NAME: "{{ item }}"
+  loop: "{{ _quadlets_clean.secrets_rm }}"
+  register: _quadlets_secret_rm
+  changed_when: "'removed' in _quadlets_secret_rm.stdout"
+
+- name: Purge volumes of absent apps
+  when: _quadlets_plan.settings.manage_services | bool
+  ansible.builtin.shell: |
+    if podman volume exists "$NAME"; then podman volume rm -f "$NAME" >/dev/null && echo removed; fi
+  environment:
+    NAME: "{{ item }}"
+  loop: "{{ _quadlets_clean.volumes_rm }}"
+  register: _quadlets_volume_rm
+  changed_when: "'removed' in _quadlets_volume_rm.stdout"

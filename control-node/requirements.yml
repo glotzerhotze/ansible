@@ -1,0 +1,10 @@
+---
+# Collections baked into the control-node image (Containerfile). Outside the
+# container: ansible-galaxy collection install -r control-node/requirements.yml
+# The quadlets role only needs ansible.builtin; these are for the roles that
+# follow (locale, authorized keys, mounts, ...).
+collections:
+  - name: community.general
+    version: 14.0.1
+  - name: ansible.posix
+    version: 2.2.2

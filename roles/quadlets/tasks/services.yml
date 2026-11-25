@@ -1,0 +1,69 @@
+---
+# One daemon-reload turns the unit files into services, then every service
+# is started, restarted (a unit file, volume, pod or secret it uses changed)
+# or stopped, in the order quadlets_services returns: network first, then
+# per app its timers, the pod and the containers (stopped apps: containers
+# before the pod).
+
+- name: Collect what changed
+  ansible.builtin.set_fact:
+    # a header-only change (Salt marker -> Ansible marker) restarts nothing
+    _quadlets_changed_files: >-
+      {{ _quadlets_files.results | selectattr('changed') | rejectattr('item.header_only')
+         | map(attribute='item.path') | list }}
+    _quadlets_changed_secrets: >-
+      {{ _quadlets_secrets.results | default([]) | selectattr('changed', 'defined') | selectattr('changed')
+         | map(attribute='item.item.name') | list }}
+    _quadlets_reload: >-
+      {{ (_quadlets_files.results | selectattr('changed') | list | length > 0)
+         or (_quadlets_config_dir_result is changed)
+         or (_quadlets_orphans_removed.results | default([]) | selectattr('changed') | list | length > 0)
+         or (_quadlets_units_removed.results | default([]) | selectattr('changed') | list | length > 0) }}
+
+# Quadlet runs `podman network create --ignore`, so an existing network never
+# picks up changed settings. When the unit file changes, stop everything
+# attached (systemd propagates the stop through Requires=) and drop the
+# network so it is re-created from the new file. Skipped on first rollout so
+# a pre-existing network of the same name is never removed.
+- name: Stop the network service before re-creating the network
+  when: &quadlets_recreate
+    - _quadlets_plan.network.recreate_on_change | bool
+    - _quadlets_network_before.stat.exists
+    - _quadlets_plan.network.file in _quadlets_changed_files
+  ansible.builtin.systemd_service:
+    name: "{{ _quadlets_plan.network.service }}"
+    state: stopped
+  register: _quadlets_network_stop
+  failed_when: >-
+    _quadlets_network_stop.failed | default(false)
+    and 'Could not find the requested service' not in (_quadlets_network_stop.msg | default(''))
+
+- name: Remove the podman network so it is re-created from the new unit
+  when: *quadlets_recreate
+  ansible.builtin.shell: |
+    if podman network exists "$NAME"; then podman network rm -f "$NAME" >/dev/null && echo removed; fi
+  environment:
+    NAME: "{{ _quadlets_plan.network.name }}"
+  register: _quadlets_network_removed
+  changed_when: "'removed' in _quadlets_network_removed.stdout"
+
+- name: Reload systemd
+  when: _quadlets_reload | bool
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+
+- name: Start, restart or stop the services
+  ansible.builtin.systemd_service:
+    name: "{{ item.name }}"
+    state: "{{ item.state if item.state is not none else omit }}"
+    enabled: "{{ item.enabled if item.enabled is not none else omit }}"
+  loop: "{{ _quadlets_plan | quadlets_services(_quadlets_changed_files, _quadlets_changed_secrets) }}"
+  loop_control:
+    label: "{{ item.name }}: {{ item.state if item.state is not none else ('enabled' if item.enabled else 'disabled') }}"
+  register: _quadlets_service
+  # In check mode no daemon-reload happens, so services of new apps do not
+  # exist yet; they would be started by the real run.
+  failed_when: >-
+    _quadlets_service.failed | default(false)
+    and not (ansible_check_mode
+             and 'Could not find the requested service' in (_quadlets_service.msg | default('')))

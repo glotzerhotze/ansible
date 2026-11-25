@@ -30,7 +30,7 @@
 
 write_environment:
 
-  # haproxy in the grafana pod (pillar/quadlets/rpi-02.sls): TLS on 443 in
+  # haproxy in the grafana pod (inventory/host_vars/rpi-02/quadlets.yml): TLS on 443 in
   # front of the web UI, plain http on 80 redirects to https. The
   # certificate grafana.pem and its key grafana.pem.key are put into the
   # same volume by the acme_sh formula (pillar/acme_sh/rpi-02.sls).

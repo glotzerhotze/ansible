@@ -1,57 +1,66 @@
-# -*- coding: utf-8 -*-
-# vim: ft=yaml
-#
+---
 # Quadlets on server-01: the container registry (distribution), its docker
 # mirror, paperless-ngx, influxdb and immich on the shared macvlan network.
-# Schema: salt/quadlets/README.md
-# Addresses: pillar/ipam.yaml
-{%- from 'ipam.jinja' import ip, mac %}
-{#- Image tags, pinned to specific versions. Renovate (renovate.json) opens a
-    pull request when a newer one is out; the renovate: comment above each
-    variable names the image its tag belongs to. A
-    changed tag is pulled and its containers restarted on the next highstate;
-    raise a version here to upgrade. podman auto-update (tika's
-    auto_update: registry) only looks for a newer image under the same tag,
-    so it only picks up rebuilds of the pinned version. #}
-{#- registry and registry-mirror #}
-{#- renovate: depName=docker.io/library/registry #}
-{%- set registry_version = '3.1.2' %}
-{#- paperless-ngx pod; gotenberg needs 8.13+ for --api-bind-ip, and tika's
-    start command below is copied from the image (check it when raising
-    paperless_tika_version) #}
-{#- renovate: depName=ghcr.io/paperless-ngx/paperless-ngx #}
-{%- set paperless_version = '3.5.1' %}
-{#- renovate: depName=docker.io/library/redis #}
-{%- set paperless_redis_version = '8.10.3' %}
-{#- renovate: depName=docker.io/gotenberg/gotenberg #}
-{%- set paperless_gotenberg_version = '8.40.0' %}
-{#- renovate: depName=docker.io/apache/tika #}
-{%- set paperless_tika_version = '3.3.3.1-full' %}
-{#- The 3.x images hold a single jar named after the Tika version, which is
-    the tag without the image build number and suffix (3.3.3.0-full ->
-    /tika-server-standard-3.3.3.jar). 4.x images use /opt/tika-server/
-    instead; see the tika container below. #}
-{%- set paperless_tika_jar = '/tika-server-standard-' ~ (paperless_tika_version.split('-')[0].split('.')[:3] | join('.')) ~ '.jar' %}
-{#- Stay on 2.x: InfluxDB 3 has a different storage engine and is no
-    in-place upgrade #}
-{#- renovate: depName=docker.io/library/influxdb #}
-{%- set influxdb_version = '2.10.1' %}
-{#- TLS proxy in the paperless-ngx, influxdb and immich pods #}
-{#- renovate: depName=docker.io/library/haproxy #}
-{%- set haproxy_version = '3.4.8' %}
-{#- Immich release for server and machine-learning, which must match. Read
-    the release notes before raising it: https://github.com/immich-app/immich/releases #}
-{#- renovate: depName=ghcr.io/immich-app/immich-server #}
-{%- set immich_version = 'v3.4.2' %}
-{#- valkey and postgres for immich: tag and digest from the upstream
-    docker-compose.yml of that release, so update them together with
-    immich_version:
-    https://github.com/immich-app/immich/releases/download/<version>/docker-compose.yml #}
-{#- renovate: depName=docker.io/valkey/valkey #}
-{%- set immich_valkey_version = '9@sha256:1c2b25b09f354c66fe994733acdf12fcfd4bdf6f3bd92b88a93a70378d884056' %}
-{#- renovate: depName=ghcr.io/immich-app/postgres #}
-{%- set immich_postgres_version = '14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23' %}
----
+# Schema: roles/quadlets/README.md
+# Addresses: pillar/ipam.yaml (the ipam variable)
+
+# Image tags, pinned to specific versions. Renovate (renovate.json) opens a
+# pull request when a newer one is out; the renovate: comment above each
+# variable names the image its tag belongs to. A
+# changed tag is pulled and its containers restarted on the next run;
+# raise a version here to upgrade. podman auto-update (tika's
+# auto_update: registry) only looks for a newer image under the same tag,
+# so it only picks up rebuilds of the pinned version.
+
+# registry and registry-mirror
+# renovate: depName=docker.io/library/registry
+registry_version: "3.1.2"
+
+# paperless-ngx pod; gotenberg needs 8.13+ for --api-bind-ip, and tika's
+# start command below is copied from the image (check it when raising
+# paperless_tika_version)
+# renovate: depName=ghcr.io/paperless-ngx/paperless-ngx
+paperless_version: "3.5.1"
+
+# renovate: depName=docker.io/library/redis
+paperless_redis_version: "8.10.3"
+
+# renovate: depName=docker.io/gotenberg/gotenberg
+paperless_gotenberg_version: "8.40.0"
+
+# renovate: depName=docker.io/apache/tika
+paperless_tika_version: "3.3.3.1-full"
+
+# The 3.x images hold a single jar named after the Tika version, which is
+# the tag without the image build number and suffix (3.3.3.0-full ->
+# /tika-server-standard-3.3.3.jar). 4.x images use /opt/tika-server/
+# instead; see the tika container below.
+paperless_tika_jar: "/tika-server-standard-{{ paperless_tika_version.split('-')[0].split('.')[:3] | join('.') }}.jar"
+
+# Stay on 2.x: InfluxDB 3 has a different storage engine and is no
+# in-place upgrade
+# renovate: depName=docker.io/library/influxdb
+influxdb_version: "2.10.1"
+
+# TLS proxy in the paperless-ngx, influxdb and immich pods
+# renovate: depName=docker.io/library/haproxy
+haproxy_version: "3.4.8"
+
+# Immich release for server and machine-learning, which must match. Read
+# the release notes before raising it: https://github.com/immich-app/immich/releases
+# renovate: depName=ghcr.io/immich-app/immich-server
+immich_version: "v3.4.2"
+
+# valkey and postgres for immich: tag and digest from the upstream
+# docker-compose.yml of that release, so update them together with
+# immich_version:
+# https://github.com/immich-app/immich/releases/download/<version>/docker-compose.yml
+# renovate: depName=docker.io/valkey/valkey
+immich_valkey_version: "9@sha256:1c2b25b09f354c66fe994733acdf12fcfd4bdf6f3bd92b88a93a70378d884056"
+
+# renovate: depName=ghcr.io/immich-app/postgres
+immich_postgres_version: "14-vectorchord0.4.3-pgvectors0.2.0@sha256:bcf63357191b76a916ae5eb93464d65c07511da41e3bf7a8416db519b40b1c23"
+
 quadlets:
   network:
     name: macvlan                 # macvlan.network -> podman network "macvlan"
@@ -59,11 +68,11 @@ quadlets:
     # dual stack: IPv4 + ULA IPv6
     ipv6: true
     subnet:
-      - {{ ip('networks:mgmt:ipv4:subnet') }}
-      - {{ ip('networks:mgmt:ipv6:subnet') }}
+      - "{{ ipam | ipam_ip('networks:mgmt:ipv4:subnet') }}"
+      - "{{ ipam | ipam_ip('networks:mgmt:ipv6:subnet') }}"
     gateway:
-      - {{ ip('networks:mgmt:ipv4:gateway') }}
-      - {{ ip('networks:mgmt:ipv6:gateway') }}
+      - "{{ ipam | ipam_ip('networks:mgmt:ipv4:gateway') }}"
+      - "{{ ipam | ipam_ip('networks:mgmt:ipv6:gateway') }}"
     Network:
       Label: role=public
     recreate_on_change: true
@@ -73,12 +82,12 @@ quadlets:
     #    registry.service, container "registry"
     registry:
       description: Container registry (distribution)
-      ip: {{ ip('hosts:server-01:apps:registry:ipv4') }}
+      ip: "{{ ipam | ipam_ip('hosts:server-01:apps:registry:ipv4') }}"
       # Pinned like the other apps (see pillar/ipam.yaml). Without it podman
       # picks the first free address of the subnet, which a container on
       # another host may already use.
-      ip6: {{ ip('hosts:server-01:apps:registry:ipv6') }}
-      mac: "{{ mac('hosts:server-01:apps:registry:mac') }}"
+      ip6: "{{ ipam | ipam_ip('hosts:server-01:apps:registry:ipv6') }}"
+      mac: "{{ ipam | ipam_mac('hosts:server-01:apps:registry:mac') }}"
       # podman volumes registry-config / registry-data, on the host under
       # /var/lib/containers/storage/volumes/registry-*/_data
       volumes:
@@ -95,7 +104,7 @@ quadlets:
         registry:
           image: docker.io/library/registry:{{ registry_version }}
           environment:
-            REGISTRY_HTTP_ADDR: "{{ ip('hosts:server-01:apps:registry:ipv4') }}:443"
+            REGISTRY_HTTP_ADDR: "{{ ipam | ipam_ip('hosts:server-01:apps:registry:ipv4') }}:443"
             # TODO: create certificates and put them inside the config volume
             # DONE: see acme_sh formula and pillar
             #       (/var/lib/containers/storage/volumes/registry-config/_data/)
@@ -114,12 +123,12 @@ quadlets:
 
     registry-mirror:
       description: Container registry (distribution) - docker mirror
-      ip: {{ ip('hosts:server-01:apps:registry-mirror:ipv4') }}
+      ip: "{{ ipam | ipam_ip('hosts:server-01:apps:registry-mirror:ipv4') }}"
       # Pinned like the other apps (see pillar/ipam.yaml). Without it podman
       # picks the first free address of the subnet, which a container on
       # another host may already use.
-      ip6: {{ ip('hosts:server-01:apps:registry-mirror:ipv6') }}
-      mac: "{{ mac('hosts:server-01:apps:registry-mirror:mac') }}"
+      ip6: "{{ ipam | ipam_ip('hosts:server-01:apps:registry-mirror:ipv6') }}"
+      mac: "{{ ipam | ipam_mac('hosts:server-01:apps:registry-mirror:mac') }}"
       # podman volumes registry-config / registry-data, on the host under
       # /var/lib/containers/storage/volumes/registry-*/_data
       volumes:
@@ -136,7 +145,7 @@ quadlets:
         registry-mirror:
           image: docker.io/library/registry:{{ registry_version }}
           environment:
-            REGISTRY_HTTP_ADDR: "{{ ip('hosts:server-01:apps:registry-mirror:ipv4') }}:443"
+            REGISTRY_HTTP_ADDR: "{{ ipam | ipam_ip('hosts:server-01:apps:registry-mirror:ipv4') }}:443"
             # TODO: create certificates and put them inside the config volume
             #       (/var/lib/containers/storage/volumes/registry-mirror-config/_data/)
             REGISTRY_HTTP_TLS_CERTIFICATE: /etc/distribution/fullchain.cer
@@ -161,12 +170,12 @@ quadlets:
     #    gotenberg on localhost, and haproxy reaches the app on 127.0.0.1:8000.
     paperless-ngx:
       description: Paperless-NGX Pod
-      ip: {{ ip('hosts:server-01:apps:paperless-ngx:ipv4') }}
+      ip: "{{ ipam | ipam_ip('hosts:server-01:apps:paperless-ngx:ipv4') }}"
       # Pinned like the other apps (see pillar/ipam.yaml). Without it podman
       # picks the first free address of the subnet, which a container on
       # another host may already use.
-      ip6: {{ ip('hosts:server-01:apps:paperless-ngx:ipv6') }}
-      mac: "{{ mac('hosts:server-01:apps:paperless-ngx:mac') }}"
+      ip6: "{{ ipam | ipam_ip('hosts:server-01:apps:paperless-ngx:ipv6') }}"
+      mac: "{{ ipam | ipam_mac('hosts:server-01:apps:paperless-ngx:mac') }}"
       # Has no effect on macvlan (the pod answers on its own IP); kept from
       # the original unit. The web UI is https on port 443 (haproxy below);
       # paperless itself only listens on 127.0.0.1:8000.
@@ -197,10 +206,10 @@ quadlets:
           Volume:
             Driver: local
             Label: app=paperless-ngx
-      # podman secret "paperless-ngx", created on the host by the formula
+      # podman secret "paperless-ngx", created on the host by the role
       secrets:
-        paperless-ngx: {{ salt['onepassword.read']('op://infra/paperless-ngx/secret_key') | yaml_dquote }}
-        paperless-gmail-secret: {{ salt['onepassword.read']('op://infra/paperless-ngx-google-app/client-secret') | yaml_dquote }}   # keep quoted
+        paperless-ngx: "{{ lookup('op', 'op://infra/paperless-ngx/secret_key') }}"
+        paperless-gmail-secret: "{{ lookup('op', 'op://infra/paperless-ngx-google-app/client-secret') }}"
       containers:
         app:
           description: Paperless-NGX Application
@@ -236,8 +245,8 @@ quadlets:
             # Only haproxy (same pod) talks to the web server; the LAN gets
             # TLS on 443 and no plain HTTP port.
             PAPERLESS_BIND_ADDR: 127.0.0.1
-            # raw block: the placeholders are for paperless, not for the
-            # pillar render
+            # raw block: the placeholders are for paperless, not for
+            # Ansible's templating
             PAPERLESS_FILENAME_FORMAT: '{% raw %}{{ created_year }}{{ created_month }}{{ created_day }}-{{ title }}{% endraw %}'
           Container:
             # from the app secret above; a new value restarts the container
@@ -316,12 +325,12 @@ quadlets:
     #    pod's network namespace.
     influxdb:
       description: InfluxDB 2 Pod
-      ip: {{ ip('hosts:server-01:apps:influxdb:ipv4') }}
+      ip: "{{ ipam | ipam_ip('hosts:server-01:apps:influxdb:ipv4') }}"
       # Pinned like the other apps (see pillar/ipam.yaml). Without it podman
       # picks the first free address of the subnet, which a container on
       # another host may already use.
-      ip6: {{ ip('hosts:server-01:apps:influxdb:ipv6') }}
-      mac: "{{ mac('hosts:server-01:apps:influxdb:mac') }}"
+      ip6: "{{ ipam | ipam_ip('hosts:server-01:apps:influxdb:ipv6') }}"
+      mac: "{{ ipam | ipam_mac('hosts:server-01:apps:influxdb:mac') }}"
       # podman volumes influxdb-data / -config / -haproxy, on the host under
       # /var/lib/containers/storage/volumes/influxdb-*/_data. The image's
       # entrypoint chowns data and config to its influxdb user (1000:1000).
@@ -339,8 +348,8 @@ quadlets:
       # podman secrets "influxdb-password" / "influxdb-token", created on the
       # host by the formula
       secrets:
-        influxdb-password: {{ salt['onepassword.read']('op://infra/influxdb/password') | yaml_dquote }}   # keep quoted
-        influxdb-token: {{ salt['onepassword.read']('op://infra/influxdb/token') | yaml_dquote }}   # keep quoted
+        influxdb-password: "{{ lookup('op', 'op://infra/influxdb/password') }}"
+        influxdb-token: "{{ lookup('op', 'op://infra/influxdb/token') }}"
       containers:
         influxdb:
           description: InfluxDB 2
@@ -404,12 +413,12 @@ quadlets:
     #    https://github.com/immich-app/immich/releases/download/<version>/docker-compose.yml
     immich:
       description: Immich Pod
-      ip: {{ ip('hosts:server-01:apps:immich:ipv4') }}
+      ip: "{{ ipam | ipam_ip('hosts:server-01:apps:immich:ipv4') }}"
       # Pinned like the other apps (see pillar/ipam.yaml). Without it podman
       # picks the first free address of the subnet, which a container on
       # another host may already use.
-      ip6: {{ ip('hosts:server-01:apps:immich:ipv6') }}
-      mac: "{{ mac('hosts:server-01:apps:immich:mac') }}"
+      ip6: "{{ ipam | ipam_ip('hosts:server-01:apps:immich:ipv6') }}"
+      mac: "{{ ipam | ipam_mac('hosts:server-01:apps:immich:mac') }}"
       Pod:
         # /dev/shm of the pod. The containers share it (IPC namespace), so
         # it is set here and not on the database container. Upstream gives
@@ -441,7 +450,7 @@ quadlets:
       # the server out until the role gets the same password
       # (ALTER USER postgres PASSWORD '...').
       secrets:
-        immich-db-password: {{ salt['onepassword.read']('op://infra/immich/db_password') | yaml_dquote }}   # keep quoted
+        immich-db-password: "{{ lookup('op', 'op://infra/immich/db_password') }}"
       containers:
         server:
           description: Immich Server
